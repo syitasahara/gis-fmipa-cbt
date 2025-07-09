@@ -131,7 +131,9 @@ export default function QuizPage() {
     setJawaban(updated);
   };
 
+  // Ubah toggleRaguRagu agar hanya bisa jika sudah menjawab
   const toggleRaguRagu = () => {
+    if (jawaban[currentSoal - 1] === null) return; // Tidak bisa ragu-ragu jika belum menjawab
     const updated = [...raguRagu];
     updated[currentSoal - 1] = !updated[currentSoal - 1];
     setRaguRagu(updated);
@@ -376,16 +378,18 @@ export default function QuizPage() {
 
       {/* Final Submit Confirmation Modal */}
       {showFinalSubmitConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-center justify-center mb-4">
-              <Send className="w-10 h-10 text-purple-600" />
-            </div>
-            <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Konfirmasi Kirim Jawaban</h2>
-            <p className="text-gray-700 mb-4 text-center">
-              Apakah Anda yakin ingin mengirim jawaban? Jawaban yang sudah dikirim tidak dapat diubah lagi.
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          {/* Overlay transparan agar klik di luar modal menutup modal */}
+          <div
+            className="absolute inset-0 bg-black bg-opacity-10"
+            onClick={() => setShowFinalSubmitConfirm(false)}
+          />
+          <div className="relative bg-white rounded-xl p-6 max-w-sm w-full mx-4 text-center shadow-2xl border border-purple-100">
+            <h2 className="text-xl font-bold mb-4 text-gray-800">Kirim Jawaban?</h2>
+            <p className="text-gray-700 mb-6">
+              Yakin ingin mengirim jawaban? Jawaban yang sudah dikirim tidak dapat diubah lagi.
             </p>
-            <div className="flex justify-center space-x-4">
+            <div className="flex justify-center gap-4">
               <button
                 onClick={() => setShowFinalSubmitConfirm(false)}
                 className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition"
@@ -399,7 +403,7 @@ export default function QuizPage() {
                 }}
                 className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
               >
-                Kirim Jawaban
+                Kirim
               </button>
             </div>
           </div>
@@ -446,7 +450,11 @@ export default function QuizPage() {
                 ></div>
               </div>
               <div className="flex items-center justify-between mt-3 text-sm text-gray-600">
-                <span>Ragu-ragu: {ragu}</span>
+                <span>
+                  Ragu-ragu: {
+                    jawaban.filter((j, idx) => j !== null && raguRagu[idx]).length
+                  }
+                </span>
                 <span>Belum dijawab: {totalSoal - terjawab}</span>
               </div>
             </div>
@@ -546,14 +554,19 @@ export default function QuizPage() {
               <div className="flex items-center justify-center space-x-4 pt-6 border-t border-gray-100">
                 <button
                   onClick={toggleRaguRagu}
+                  disabled={jawaban[currentSoal - 1] === null}
                   className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all ${
-                    raguRagu[currentSoal - 1]
+                    jawaban[currentSoal - 1] === null
+                      ? 'bg-amber-100 text-amber-300 cursor-not-allowed'
+                      : raguRagu[currentSoal - 1]
                       ? 'bg-amber-500 text-white hover:bg-amber-600'
                       : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                   }`}
                 >
                   <HelpCircle className="w-4 h-4" />
-                  <span>{raguRagu[currentSoal - 1] ? 'Hapus Ragu-ragu' : 'Tandai Ragu-ragu'}</span>
+                  <span>
+                    {raguRagu[currentSoal - 1] ? 'Hapus Ragu-ragu' : 'Tandai Ragu-ragu'}
+                  </span>
                 </button>
 
                 {jawaban[currentSoal - 1] !== null && (
@@ -635,13 +648,17 @@ export default function QuizPage() {
               <div className="space-y-2">
                 <div className="flex items-center space-x-3">
                   <div className="w-4 h-4 bg-emerald-500 rounded"></div>
-                  <span className="text-sm text-gray-600">Sudah Dijawab ({terjawab - ragu})</span>
+                  <span className="text-sm text-gray-600">
+                    Sudah Dijawab ({terjawab - jawaban.filter((j, idx) => j !== null && raguRagu[idx]).length})
+                  </span>
                 </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-4 h-4 bg-amber-500 rounded relative">
                     <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full"></div>
                   </div>
-                  <span className="text-sm text-gray-600">Ragu-ragu ({ragu})</span>
+                  <span className="text-sm text-gray-600">
+                    Ragu-ragu ({jawaban.filter((j, idx) => j !== null && raguRagu[idx]).length})
+                  </span>
                 </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-4 h-4 bg-gray-300 rounded"></div>
