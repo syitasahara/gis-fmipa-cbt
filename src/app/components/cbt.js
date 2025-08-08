@@ -1,67 +1,31 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, AlertTriangle, Image, Table, CheckCircle, Home } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, AlertTriangle, Image, Table, CheckCircle, Home, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
 
-const totalSoal = 50;
 const examDuration = 90 * 60 * 1000; // 90 minutes in milliseconds
-
-const dummySoals = Array.from({ length: totalSoal }, (_, i) => {
-  const types = ['text', 'image', 'table'];
-  const type = types[i % 3];
-  
-  let pertanyaan = '';
-  let media = null;
-  
-  if (type === 'text') {
-    pertanyaan = `Siapakah Presiden ke-${i+1} Indonesia?`;
-  } else if (type === 'image') {
-    pertanyaan = `Identifikasi gambar berikut (Soal ${i+1}):`;
-    media = 'https://via.placeholder.com/500x300?text=Contoh+Gambar+Soal';
-  } else if (type === 'table') {
-    pertanyaan = `Analisis tabel berikut (Soal ${i+1}):`;
-    media = (
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border p-2">No</th>
-            <th className="border p-2">Nama</th>
-            <th className="border p-2">Nilai</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="border p-2">1</td>
-            <td className="border p-2">Andi</td>
-            <td className="border p-2">85</td>
-          </tr>
-          <tr>
-            <td className="border p-2">2</td>
-            <td className="border p-2">Budi</td>
-            <td className="border p-2">90</td>
-          </tr>
-        </tbody>
-      </table>
-    );
-  }
-  
-  return {
-    pertanyaan,
-    type,
-    media,
-    opsi: ['Ir. Soekarno', 'Prabowo', 'B.J. Habibie', 'Soeharto'].map((opt, idx) => 
-      type === 'image' ? `${opt} (Gambar ${idx+1})` : 
-      type === 'table' ? `${opt} (Data ${idx+1})` : opt
-    )
-  };
-});
 
 export default function QuizPage() {
   const router = useRouter();
+  
+  // Authentication & User state
+  const [user, setUser] = useState(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  
+  // Questions & Exam state
+  const [questions, setQuestions] = useState([]);
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+  const [totalSoal, setTotalSoal] = useState(0);
+  
+  // Current question state
   const [currentSoal, setCurrentSoal] = useState(1);
-  const [jawaban, setJawaban] = useState(Array(totalSoal).fill(null));
-  const [raguRagu, setRaguRagu] = useState(Array(totalSoal).fill(false));
+  const [jawaban, setJawaban] = useState([]);
+  const [raguRagu, setRaguRagu] = useState([]);
+  const [userAnswerIds, setUserAnswerIds] = useState([]); // Track backend answer IDs
+  
+  // Timer & UI state
   const [timeLeft, setTimeLeft] = useState(examDuration);
   const [tabChanges, setTabChanges] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
@@ -72,8 +36,107 @@ export default function QuizPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null);
   const [showFinalSubmitConfirm, setShowFinalSubmitConfirm] = useState(false);
+  const [error, setError] = useState('');
 
-  // Handle timer
+  // Authentication check
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (!isAuthenticated()) {
+        router.push('/login');
+        return;
+      }
+
+      try {
+        const userData = await authAPI.getCurrentUser();
+        setUser(userData);
+      } catch (error) {
+        console.error('Auth error:', error);
+        router.push('/login');
+        return;
+      } finally {
+        setIsLoadingAuth(false);
+      }
+    };
+
+    checkAuth();
+  }, [router]);
+
+  // Load questions
+  useEffect(() => {
+    const loadQuestions = async () => {
+      if (!user) return;
+
+      try {
+        setIsLoadingQuestions(true);
+        const questionsData = await questionsAPI.getQuestions(user.jenjang);
+        
+        // Transform backend data to frontend format
+        const transformedQuestions = questionsData.map(q => ({
+          id: q.id,
+          pertanyaan: q.question_text || '',
+          type: q.type,
+          media: q.question_img || null,
+          answers: q.answers || [],
+          opsi: q.answers?.map(a => a.answer_text || a.answer_img || '') || []
+        }));
+
+        setQuestions(transformedQuestions);
+        setTotalSoal(transformedQuestions.length);
+        setJawaban(Array(transformedQuestions.length).fill(null));
+        setRaguRagu(Array(transformedQuestions.length).fill(false));
+        setUserAnswerIds(Array(transformedQuestions.length).fill(null));
+
+        // Load existing user answers if any
+        await loadUserAnswers(transformedQuestions);
+      } catch (error) {
+        console.error('Error loading questions:', error);
+        setError('Gagal memuat soal ujian. Silakan refresh halaman.');
+      } finally {
+        setIsLoadingQuestions(false);
+      }
+    };
+
+    loadQuestions();
+  }, [user]);
+
+  // Load existing user answers
+  const loadUserAnswers = async (questionsData) => {
+    if (!user) return;
+
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) return;
+
+      const userAnswers = await answersAPI.getUserAnswers(userId);
+      
+      // Map existing answers to frontend state
+      userAnswers.forEach(answer => {
+        const questionIndex = questionsData.findIndex(q => q.id === answer.question_id);
+        if (questionIndex !== -1) {
+          const answerIndex = questionsData[questionIndex].answers.findIndex(a => a.id === answer.answer_id);
+          if (answerIndex !== -1) {
+            setJawaban(prev => {
+              const updated = [...prev];
+              updated[questionIndex] = answerIndex;
+              return updated;
+            });
+            setRaguRagu(prev => {
+              const updated = [...prev];
+              updated[questionIndex] = answer.is_doubtful || false;
+              return updated;
+            });
+            setUserAnswerIds(prev => {
+              const updated = [...prev];
+              updated[questionIndex] = answer.id;
+              return updated;
+            });
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error loading user answers:', error);
+    }
+  };  // Handle timer
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
@@ -125,27 +188,89 @@ export default function QuizPage() {
       .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleJawab = (index) => {
-    const updated = [...jawaban];
-    updated[currentSoal - 1] = index;
-    setJawaban(updated);
+  // Handle answer submission with API
+  const handleJawab = async (index) => {
+    const currentQuestion = questions[currentSoal - 1];
+    if (!currentQuestion) return;
+
+    const selectedAnswer = currentQuestion.answers[index];
+    if (!selectedAnswer) return;
+
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) throw new Error('User ID not found');
+
+      // If there's an existing answer, delete it first
+      const existingAnswerId = userAnswerIds[currentSoal - 1];
+      if (existingAnswerId) {
+        await answersAPI.cancelAnswer(existingAnswerId);
+      }
+
+      // Submit new answer
+      const response = await answersAPI.submitAnswer(
+        userId,
+        currentQuestion.id,
+        selectedAnswer.id
+      );
+
+      // Update local state
+      const updated = [...jawaban];
+      updated[currentSoal - 1] = index;
+      setJawaban(updated);
+
+      // Update answer ID tracking
+      const updatedIds = [...userAnswerIds];
+      updatedIds[currentSoal - 1] = response.id || null;
+      setUserAnswerIds(updatedIds);
+
+    } catch (error) {
+      console.error('Error submitting answer:', error);
+      setError('Gagal menyimpan jawaban. Silakan coba lagi.');
+    }
   };
 
-  // Ubah toggleRaguRagu agar hanya bisa jika sudah menjawab
-  const toggleRaguRagu = () => {
-    if (jawaban[currentSoal - 1] === null) return; // Tidak bisa ragu-ragu jika belum menjawab
-    const updated = [...raguRagu];
-    updated[currentSoal - 1] = !updated[currentSoal - 1];
-    setRaguRagu(updated);
+  // Toggle ragu-ragu with API
+  const toggleRaguRagu = async () => {
+    if (jawaban[currentSoal - 1] === null) return;
+
+    const answerId = userAnswerIds[currentSoal - 1];
+    if (!answerId) return;
+
+    try {
+      await answersAPI.toggleDoubt(answerId);
+
+      const updated = [...raguRagu];
+      updated[currentSoal - 1] = !updated[currentSoal - 1];
+      setRaguRagu(updated);
+    } catch (error) {
+      console.error('Error toggling doubt:', error);
+      setError('Gagal mengubah status ragu-ragu. Silakan coba lagi.');
+    }
   };
 
-  const batalkanJawaban = () => {
-    const updatedJawaban = [...jawaban];
-    const updatedRagu = [...raguRagu];
-    updatedJawaban[currentSoal - 1] = null;
-    updatedRagu[currentSoal - 1] = false;
-    setJawaban(updatedJawaban);
-    setRaguRagu(updatedRagu);
+  // Cancel answer with API
+  const batalkanJawaban = async () => {
+    const answerId = userAnswerIds[currentSoal - 1];
+    if (!answerId) return;
+
+    try {
+      await answersAPI.cancelAnswer(answerId);
+
+      const updatedJawaban = [...jawaban];
+      const updatedRagu = [...raguRagu];
+      const updatedIds = [...userAnswerIds];
+      
+      updatedJawaban[currentSoal - 1] = null;
+      updatedRagu[currentSoal - 1] = false;
+      updatedIds[currentSoal - 1] = null;
+      
+      setJawaban(updatedJawaban);
+      setRaguRagu(updatedRagu);
+      setUserAnswerIds(updatedIds);
+    } catch (error) {
+      console.error('Error canceling answer:', error);
+      setError('Gagal membatalkan jawaban. Silakan coba lagi.');
+    }
   };
 
   const nextSoal = () => {
@@ -165,39 +290,87 @@ export default function QuizPage() {
     }
   };
 
-  const kirimJawaban = (isAutoSubmit) => {
+  // Final submission with results calculation
+  const kirimJawaban = async (isAutoSubmit) => {
     setIsSubmitting(true);
-    const terjawab = jawaban.filter(j => j !== null).length;
-    const ragu = raguRagu.filter(r => r === true).length;
     
-    // Prepare submission result
-    const result = {
-      totalQuestions: totalSoal,
-      answered: terjawab,
-      unanswered: totalSoal - terjawab,
-      marked: ragu,
-      isAutoSubmit,
-      timestamp: new Date().toLocaleString('id-ID', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZoneName: 'short'
-      })
-    };
-    
-    setSubmissionResult(result);
-    
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false);
-      if (isAutoSubmit) setShowTimeUpModal(false);
-      if (showSubmitWarning) setShowSubmitWarning(false);
-      setShowSuccessModal(true);
-    }, 1000);
+    try {
+      const userId = getCurrentUserId();
+      if (!userId) throw new Error('User ID not found');
+
+      // Get final results from backend
+      const results = await answersAPI.getResults(userId);
+      
+      const terjawab = jawaban.filter(j => j !== null).length;
+      const ragu = raguRagu.filter(r => r === true).length;
+      
+      // Prepare submission result with backend data
+      const result = {
+        totalQuestions: totalSoal,
+        answered: results.correct + results.incorrect || terjawab,
+        unanswered: results.unanswered || (totalSoal - terjawab),
+        marked: ragu,
+        correct: results.correct || 0,
+        incorrect: results.incorrect || 0,
+        score: results.score || 0,
+        isAutoSubmit,
+        timestamp: new Date().toLocaleString('id-ID', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZoneName: 'short'
+        })
+      };
+      
+      setSubmissionResult(result);
+      
+      // Show success modal after processing
+      setTimeout(() => {
+        setIsSubmitting(false);
+        if (isAutoSubmit) setShowTimeUpModal(false);
+        if (showSubmitWarning) setShowSubmitWarning(false);
+        setShowSuccessModal(true);
+      }, 1500);
+      
+    } catch (error) {
+      console.error('Error submitting exam:', error);
+      
+      // Fallback to local calculation if backend fails
+      const terjawab = jawaban.filter(j => j !== null).length;
+      const ragu = raguRagu.filter(r => r === true).length;
+      
+      const result = {
+        totalQuestions: totalSoal,
+        answered: terjawab,
+        unanswered: totalSoal - terjawab,
+        marked: ragu,
+        isAutoSubmit,
+        timestamp: new Date().toLocaleString('id-ID', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long', 
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZoneName: 'short'
+        })
+      };
+      
+      setSubmissionResult(result);
+      setError('Gagal menghitung hasil dari server, menampilkan hasil lokal.');
+      
+      setTimeout(() => {
+        setIsSubmitting(false);
+        if (isAutoSubmit) setShowTimeUpModal(false);
+        if (showSubmitWarning) setShowSubmitWarning(false);
+        setShowSuccessModal(true);
+      }, 1000);
+    }
   };
 
   const handleBackToHome = () => {
@@ -207,7 +380,7 @@ export default function QuizPage() {
 
   const terjawab = jawaban.filter(j => j !== null).length;
   const ragu = raguRagu.filter(r => r === true).length;
-  const progress = (terjawab / totalSoal) * 100;
+  const progress = totalSoal > 0 ? (terjawab / totalSoal) * 100 : 0;
 
   const getStatusSoal = (index) => {
     if (jawaban[index] !== null && raguRagu[index]) return 'ragu';
@@ -227,7 +400,55 @@ export default function QuizPage() {
     return 'bg-gray-100 text-gray-800';
   };
 
-  const currentQuestion = dummySoals[currentSoal - 1];
+  const currentQuestion = questions[currentSoal - 1];
+
+  // Show loading screen while authenticating or loading questions
+  if (isLoadingAuth || isLoadingQuestions) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">
+            {isLoadingAuth ? 'Memverifikasi akun...' : 'Memuat soal ujian...'}
+          </h2>
+          <p className="text-gray-600">Mohon tunggu sebentar</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if no questions loaded
+  if (!isLoadingQuestions && questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md">
+          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Tidak Ada Soal</h2>
+          <p className="text-gray-600 mb-4">
+            {error || 'Belum ada soal ujian yang tersedia untuk jenjang Anda.'}
+          </p>
+          <button 
+            onClick={() => router.push('/')}
+            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+          >
+            Kembali ke Beranda
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render main content if no current question
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Memuat soal...</h2>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50">
@@ -361,6 +582,25 @@ export default function QuizPage() {
                 <span className="text-gray-600">Ditandai Ragu-ragu:</span>
                 <span className="font-medium text-amber-600">{submissionResult.marked}</span>
               </div>
+              {submissionResult.correct !== undefined && (
+                <>
+                  <hr className="my-2" />
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Jawaban Benar:</span>
+                    <span className="font-medium text-green-600">{submissionResult.correct}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Jawaban Salah:</span>
+                    <span className="font-medium text-red-600">{submissionResult.incorrect}</span>
+                  </div>
+                  {submissionResult.score !== undefined && (
+                    <div className="flex justify-between items-center font-bold">
+                      <span className="text-gray-800">Skor:</span>
+                      <span className="text-purple-600 text-lg">{submissionResult.score}</span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             
             <div className="flex justify-center">
@@ -420,10 +660,16 @@ export default function QuizPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-800">Gebyar Ilmiah Sains</h1>
-                <p className="text-sm text-gray-600">Science Competition</p>
+                <p className="text-sm text-gray-600">Science Competition - {user?.jenjang || ''}</p>
               </div>
             </div>
             <div className="flex items-center space-x-6">
+              {user && (
+                <div className="flex items-center space-x-2 bg-blue-100 px-3 py-1 rounded-full">
+                  <User className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-700">{user.name}</span>
+                </div>
+              )}
               <div className="flex items-center space-x-2 bg-purple-100 px-3 py-1 rounded-full">
                 <Clock className="w-5 h-5 text-purple-600" />
                 <span className="font-medium text-purple-700">{formatTime(timeLeft)}</span>
@@ -434,6 +680,20 @@ export default function QuizPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+            <span className="text-red-700 text-sm">{error}</span>
+            <button 
+              onClick={() => setError('')}
+              className="ml-auto text-red-500 hover:text-red-700"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Question Area */}
           <div className="lg:col-span-2">
@@ -498,10 +758,23 @@ export default function QuizPage() {
                       src={currentQuestion.media} 
                       alt="Gambar soal" 
                       className="w-full h-auto max-h-60 object-contain"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.nextSibling.style.display = 'block';
+                      }}
                     />
                   ) : (
                     <div className="p-2 overflow-x-auto">
                       {currentQuestion.media}
+                    </div>
+                  )}
+                  {currentQuestion.type === 'image' && (
+                    <div 
+                      style={{ display: 'none' }}
+                      className="p-4 text-center text-gray-500 bg-gray-50"
+                    >
+                      <Image className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                      <p>Gambar tidak dapat dimuat</p>
                     </div>
                   )}
                 </div>

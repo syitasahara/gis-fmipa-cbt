@@ -36,7 +36,7 @@ const Page = () => {
 
           {/* Main CTA Button */}
           <div className="mb-8">
-            <a href="/quiz" className="group inline-block">
+            <a href="/login" className="group inline-block">
               <button className="bg-gradient-to-r from-violet-700 to-purple-700 hover:from-violet-800 hover:to-purple-800 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-purple-200/50 transform hover:scale-[1.02] transition-all duration-300 flex items-center space-x-3 mx-auto">
                 <Play className="w-5 h-5" />
                 <span>Mulai Ujian</span>
