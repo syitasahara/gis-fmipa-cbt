@@ -5,7 +5,8 @@ import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, 
 import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
 
-const examDuration = 90 * 60 * 1000; // 90 minutes in milliseconds
+const examDuration = 30 * 60 * 1000; // 90 minutes in milliseconds
+
 
 export default function QuizPage() {
   const router = useRouter();
@@ -568,7 +569,7 @@ export default function QuizPage() {
             <div className="space-y-3 mb-6">
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Total Soal:</span>
-                <span className="font-medium">{submissionResult.totalQuestions}</span>
+                <span className="font-medium text-gray-600">{submissionResult.totalQuestions}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Terjawab:</span>
@@ -582,25 +583,6 @@ export default function QuizPage() {
                 <span className="text-gray-600">Ditandai Ragu-ragu:</span>
                 <span className="font-medium text-amber-600">{submissionResult.marked}</span>
               </div>
-              {submissionResult.correct !== undefined && (
-                <>
-                  <hr className="my-2" />
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Jawaban Benar:</span>
-                    <span className="font-medium text-green-600">{submissionResult.correct}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Jawaban Salah:</span>
-                    <span className="font-medium text-red-600">{submissionResult.wrong}</span>
-                  </div>
-                  {submissionResult.score !== undefined && (
-                    <div className="flex justify-between items-center font-bold">
-                      <span className="text-gray-800">Skor:</span>
-                      <span className="text-purple-600 text-lg">{submissionResult.score}</span>
-                    </div>
-                  )}
-                </>
-              )}
             </div>
             
             <div className="flex justify-center">

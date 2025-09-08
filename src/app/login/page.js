@@ -85,7 +85,7 @@ export default function LoginPage() {
               Email
             </label>
             <div className="relative">
-              <Mail className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <Mail className="w-5 h-5 text-gray-500 absolute left-3 top-1/2 transform -translate-y-1/2" />
               <input
                 type="email"
                 id="email"
@@ -93,7 +93,7 @@ export default function LoginPage() {
                 value={formData.email}
                 onChange={handleInputChange}
                 required
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                className="w-full pl-10 pr-4 py-3 border text-slate-600 border-gray-300 rounded-lg transition-all"
                 placeholder="Masukkan email Anda"
                 disabled={isLoading}
               />
@@ -106,7 +106,7 @@ export default function LoginPage() {
               Password
             </label>
             <div className="relative">
-              <Lock className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <Lock className="w-5 h-5 text-gray-500 absolute left-3 top-1/2 transform -translate-y-1/2" />
               <input
                 type={showPassword ? 'text' : 'password'}
                 id="password"
@@ -114,7 +114,7 @@ export default function LoginPage() {
                 value={formData.password}
                 onChange={handleInputChange}
                 required
-                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                className="w-full pl-10 pr-12 py-3 border text-slate-600 border-gray-300 rounded-lg transition-all"
                 placeholder="Masukkan password Anda"
                 disabled={isLoading}
               />

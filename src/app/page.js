@@ -58,8 +58,8 @@ const Page = () => {
         {/* Simple Info */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-md border border-purple-100 max-w-md mx-auto">
           <div className="text-center space-y-3">
-            <div className="text-2xl font-bold text-violet-700">50 Soal</div>
-            <div className="text-purple-600/90">90 menit waktu</div>
+            <div className="text-2xl font-bold text-violet-700">10 Soal</div>
+            <div className="text-purple-600/90">30 menit waktu</div>
           </div>
         </div>
       </div>
