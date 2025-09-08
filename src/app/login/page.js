@@ -148,25 +148,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        {/* Footer */}
-        <div className="text-center mt-6">
-          <p className="text-sm text-gray-600">
-            Belum memiliki akun?{' '}
-            <button
-              onClick={() => router.push('/register')}
-              className="text-purple-600 hover:text-purple-800 font-medium"
-            >
-              Daftar di sini
-            </button>
-          </p>
-          <button
-            onClick={() => router.push('/forgot-password')}
-            className="text-sm text-purple-600 hover:text-purple-800 mt-2 block mx-auto"
-          >
-            Lupa password?
-          </button>
-        </div>
       </div>
     </div>
   );
