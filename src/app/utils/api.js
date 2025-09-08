@@ -2,7 +2,7 @@
 // Use relative URL to leverage Next.js proxy and avoid CORS
 const API_BASE_URL = '/api';
 // Fallback direct URL for development testing
-const API_DIRECT_URL = 'https://ujicoba-gis-backend.karyavisual.com/api';
+const API_DIRECT_URL = 'https://gis-backend.karyavisual.com/api';
 
 // Get token from localStorage
 const getToken = () => {

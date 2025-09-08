@@ -307,11 +307,11 @@ export default function QuizPage() {
       // Prepare submission result with backend data
       const result = {
         totalQuestions: totalSoal,
-        answered: results.correct + results.incorrect || terjawab,
+        answered: results.correct + results.wrong || terjawab,
         unanswered: results.unanswered || (totalSoal - terjawab),
         marked: ragu,
         correct: results.correct || 0,
-        incorrect: results.incorrect || 0,
+        wrong: results.wrong || 0,
         score: results.score || 0,
         isAutoSubmit,
         timestamp: new Date().toLocaleString('id-ID', {
@@ -591,7 +591,7 @@ export default function QuizPage() {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Jawaban Salah:</span>
-                    <span className="font-medium text-red-600">{submissionResult.incorrect}</span>
+                    <span className="font-medium text-red-600">{submissionResult.wrong}</span>
                   </div>
                   {submissionResult.score !== undefined && (
                     <div className="flex justify-between items-center font-bold">

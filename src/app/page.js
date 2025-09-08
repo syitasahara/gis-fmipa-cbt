@@ -35,7 +35,7 @@ const Page = () => {
           </p>
 
           {/* Main CTA Button */}
-          <div className="mb-8">
+          <div className="mb-8 space-y-4">
             <a href="/login" className="group inline-block">
               <button className="bg-gradient-to-r from-violet-700 to-purple-700 hover:from-violet-800 hover:to-purple-800 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-purple-200/50 transform hover:scale-[1.02] transition-all duration-300 flex items-center space-x-3 mx-auto">
                 <Play className="w-5 h-5" />
@@ -43,6 +43,15 @@ const Page = () => {
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </button>
             </a>
+            
+            {/* API Test Button */}
+            {/* <div className="text-center">
+              <a href="/test" className="inline-block">
+                <button className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-[1.02] transition-all duration-300">
+                  Test API Connection
+                </button>
+              </a>
+            </div> */}
           </div>
         </div>
 
