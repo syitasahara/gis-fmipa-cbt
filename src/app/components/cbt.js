@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, AlertTriangle, Image, Table, CheckCircle, Home, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
+import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
 
 const examDuration = 30 * 60 * 1000; // 90 minutes in milliseconds
 
@@ -29,6 +30,7 @@ export default function QuizPage() {
   // Timer & UI state
   const [timeLeft, setTimeLeft] = useState(examDuration);
   const [tabChanges, setTabChanges] = useState(0);
+  const [violations, setViolations] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
   const [showCheatingWarning, setShowCheatingWarning] = useState(false);
   const [showSubmitWarning, setShowSubmitWarning] = useState(false);
@@ -76,7 +78,7 @@ export default function QuizPage() {
           id: q.id,
           pertanyaan: q.question_text || '',
           type: q.type,
-          media: q.question_img || null,
+          question_img_url: q.question_img || null,
           answers: q.answers || [],
           opsi: q.answers?.map(a => a.answer_text || a.answer_img || '') || []
         }));
@@ -153,13 +155,23 @@ export default function QuizPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // Initialize violations from cookies
+  useEffect(() => {
+    const savedViolations = getCookie('violations');
+    if (savedViolations) {
+      setViolations(parseInt(savedViolations));
+    }
+  }, []);
+
   // Handle visibility changes (tab switching)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        setTabChanges(prev => {
+        setViolations(prev => {
           const newCount = prev + 1;
+          setCookie('violations', newCount);
           if (newCount >= 5) {
+            // Show cheating warning first
             setShowCheatingWarning(true);
           } else {
             setShowWarning(true);
@@ -299,8 +311,22 @@ export default function QuizPage() {
       const userId = getCurrentUserId();
       if (!userId) throw new Error('User ID not found');
 
-      // Get final results from backend
-      const results = await answersAPI.getResults(userId);
+      // Calculate duration
+      const usedDuration = examDuration - timeLeft;
+      const durationInMinutes = Math.floor(usedDuration / 60000); // Convert to minutes
+      
+      // Get violations count from cookie
+      const totalViolations = parseInt(getCookie('violations') || '0');
+      
+      // Get final results from backend with additional data
+      const payload = {
+        userId,
+        durationInMinutes,
+        totalViolations,
+        isAutoSubmit
+      };
+      
+      const results = await answersAPI.getResults(payload);
       
       const terjawab = jawaban.filter(j => j !== null).length;
       const ragu = raguRagu.filter(r => r === true).length;
@@ -314,6 +340,8 @@ export default function QuizPage() {
         correct: results.correct || 0,
         wrong: results.wrong || 0,
         score: results.score || 0,
+        durationInMinutes,
+        totalViolations,
         isAutoSubmit,
         timestamp: new Date().toLocaleString('id-ID', {
           weekday: 'long',
@@ -329,12 +357,19 @@ export default function QuizPage() {
       
       setSubmissionResult(result);
       
-      // Show success modal after processing
+      // Show success modal after processing and clear local storage
       setTimeout(() => {
         setIsSubmitting(false);
         if (isAutoSubmit) setShowTimeUpModal(false);
         if (showSubmitWarning) setShowSubmitWarning(false);
         setShowSuccessModal(true);
+        
+        // Clear localStorage and cookies
+        localStorage.clear();
+        deleteCookie('violations');
+        setTimeout(() => {
+          router.push('/login');
+        }, 2000);
       }, 1500);
       
     } catch (error) {
@@ -462,7 +497,7 @@ export default function QuizPage() {
             </div>
             <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Peringatan!</h2>
             <p className="text-gray-700 mb-4 text-center">
-              Anda telah meninggalkan halaman ujian {tabChanges} kali. Jika melakukan ini lebih dari 5x, Anda akan didiskualifikasi.
+              Anda telah meninggalkan halaman ujian {violations} kali. Jika melakukan ini lebih dari 5x, Anda akan didiskualifikasi.
             </p>
             <div className="flex justify-center">
               <button 
@@ -484,20 +519,23 @@ export default function QuizPage() {
             </div>
             <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Pelanggaran!</h2>
             <p className="text-gray-700 mb-4 text-center">
-              Anda telah meninggalkan halaman ujian lebih dari 5x. Anda didiskualifikasi dari ujian ini.
+              Anda telah meninggalkan halaman ujian 5 kali!
+            </p>
+            <p className="text-gray-700 mb-4 text-center font-semibold text-red-600">
+              Anda akan didiskualifikasi dan ujian akan diakhiri.
             </p>
             <p className="text-gray-700 mb-6 text-center text-sm">
-              Data jawaban Anda tetap akan disimpan.
+              Data jawaban Anda akan disimpan dan dikirim secara otomatis.
             </p>
-            <div className="flex justify-center">
+            <div className="flex justify-center gap-4">
               <button 
                 onClick={() => {
                   setShowCheatingWarning(false);
-                  kirimJawaban(false);
+                  kirimJawaban(true);
                 }}
                 className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
               >
-                Kirim Jawaban
+                Saya Mengerti
               </button>
             </div>
           </div>
@@ -733,34 +771,18 @@ export default function QuizPage() {
                 {currentQuestion.pertanyaan}
               </h2>
 
-              {currentQuestion.media && (
+              {console.log("currentQuestion", currentQuestion)}
+
+              {currentQuestion.type == 'image' && (
                 <div className="mb-6 rounded-lg overflow-hidden border border-gray-200">
-                  {currentQuestion.type === 'image' ? (
-                    <img 
-                      src={currentQuestion.media} 
-                      alt="Gambar soal" 
-                      className="w-full h-auto max-h-60 object-contain"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        e.target.nextSibling.style.display = 'block';
-                      }}
-                    />
-                  ) : (
-                    <div className="p-2 overflow-x-auto">
-                      {currentQuestion.media}
-                    </div>
-                  )}
-                  {currentQuestion.type === 'image' && (
-                    <div 
-                      style={{ display: 'none' }}
-                      className="p-4 text-center text-gray-500 bg-gray-50"
-                    >
-                      <Image className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                      <p>Gambar tidak dapat dimuat</p>
-                    </div>
-                  )}
+                  <img 
+                    src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img_url}`} 
+                    alt="Gambar soal" 
+                    className="w-full h-full object-cover" 
+                  />
                 </div>
               )}
+
 
               <div className="space-y-3 mb-8">
                 {currentQuestion.opsi.map((opsi, idx) => (

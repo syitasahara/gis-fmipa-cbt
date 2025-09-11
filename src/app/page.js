@@ -1,7 +1,19 @@
-import React from 'react';
+'use client';
+
+import React, { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { BookOpen, Clock, Award, Users, ChevronRight, Play, Target, CheckCircle } from 'lucide-react';
+import { isAuthenticated } from './utils/api';
 
 const Page = () => {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      router.push('/quiz');
+    }
+  }, [router]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-violet-50 to-fuchsia-50">
       {/* Header */}
