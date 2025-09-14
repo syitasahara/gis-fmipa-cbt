@@ -283,36 +283,18 @@ export default function QuizPage() {
     }
   };
 
-  // Toggle ragu-ragu with API
-  const toggleRaguRagu = async () => {
+  // Toggle ragu-ragu (visual only - no API call)
+  const toggleRaguRagu = () => {
     if (jawaban[currentSoal - 1] === null) return;
 
-    const answerId = userAnswerIds[currentSoal - 1];
-    console.log('Toggling doubt for answerId:', answerId, 'for question:', currentSoal);
+    console.log('Toggling doubt (visual only) for question:', currentSoal);
     
-    if (!answerId) {
-      setError('Tidak dapat mengubah status ragu-ragu. ID jawaban tidak ditemukan.');
-      return;
-    }
-
-    try {
-      await answersAPI.toggleDoubt(answerId);
-
-      const updated = [...raguRagu];
-      updated[currentSoal - 1] = !updated[currentSoal - 1];
-      setRaguRagu(updated);
-      
-      console.log('Doubt toggled successfully for answerId:', answerId);
-    } catch (error) {
-      console.error('Error toggling doubt:', error);
-      
-      // Fallback: Update UI optimistically even if API fails
-      const updated = [...raguRagu];
-      updated[currentSoal - 1] = !updated[currentSoal - 1];
-      setRaguRagu(updated);
-      
-      setError(`Status ragu-ragu diubah locally (server error: ${error.message || 'Unknown'})`);
-    }
+    // Update UI state only - no backend call
+    const updated = [...raguRagu];
+    updated[currentSoal - 1] = !updated[currentSoal - 1];
+    setRaguRagu(updated);
+    
+    console.log('Doubt status changed (visual only):', updated[currentSoal - 1] ? 'marked as doubtful' : 'unmarked');
   };
 
   // Cancel answer with API
