@@ -90,7 +90,7 @@ export default function QuizPage() {
           id: q.id,
           pertanyaan: q.question_text || '',
           type: q.type,
-          question_img_url: q.question_img || null,
+          question_img_url: q.question_img_url || null,
           answers: q.answers || [],
           opsi: q.answers?.map(a => a.answer_text || a.answer_img || '') || []
         }));
@@ -999,19 +999,23 @@ export default function QuizPage() {
 
               {console.log("currentQuestion", currentQuestion)}
 
-              {currentQuestion.type == 'image' && (
+              {currentQuestion.type == 'image' && currentQuestion.question_img_url && (
                 <div className="mb-6 rounded-lg overflow-hidden border border-gray-200">
                   <img 
-                    src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img_url}`} 
+                    src={currentQuestion.question_img_url} 
                     alt="Gambar soal" 
-                    className="w-full h-full object-cover" 
+                    className="w-full h-auto object-contain max-h-96" 
+                    onError={(e) => {
+                      console.error('Error loading question image:', currentQuestion.question_img_url);
+                      e.target.style.display = 'none';
+                    }}
                   />
                 </div>
               )}
 
 
               <div className="space-y-3 mb-8">
-                {currentQuestion.opsi.map((opsi, idx) => {
+                {currentQuestion.answers.map((answer, idx) => {
                   const isSelected = jawaban[currentSoal - 1] === idx;
                   const isPending = isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1 && pendingAnswerIndex === idx;
                   const isDisabled = (isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1) || isRefetching;
@@ -1045,11 +1049,34 @@ export default function QuizPage() {
                             }`}>
                               {String.fromCharCode(65 + idx)}.
                             </span>
-                            <span className={`text-lg ${
-                              isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
-                            }`}>
-                              {opsi}
-                            </span>
+                            {answer.type === 'image' && answer.answer_img_url ? (
+                              <img 
+                                src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${answer.answer_img}`} 
+                                alt={`Jawaban ${String.fromCharCode(65 + idx)}`}
+                                className="max-w-xs max-h-32 object-contain rounded-lg border border-gray-200"
+                                onError={(e) => {
+                                  console.error('Error loading answer image:', answer.answer_img_url);
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'inline';
+                                }}
+                              />
+                            ) : (
+                              <span className={`text-lg ${
+                                isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
+                              }`}>
+                                {answer.answer_text || currentQuestion.opsi[idx]}
+                              </span>
+                            )}
+                            {answer.type === 'image' && answer.answer_img_url && (
+                              <span 
+                                className={`text-lg ${
+                                  isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
+                                }`}
+                                style={{ display: 'none' }}
+                              >
+                                {answer.answer_text || `Gambar ${String.fromCharCode(65 + idx)}`}
+                              </span>
+                            )}
                           </div>
                           {isPending && (
                             <div className="flex items-center text-blue-600 text-sm ml-auto">
