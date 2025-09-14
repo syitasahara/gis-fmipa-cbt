@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const BACKEND_URL = 'https://ujicoba-gis-backend.karyavisual.com/api';
+const BACKEND_URL = 'https://gis-backend.karyavisual.com/api';
 
 export async function POST(request) {
   try {
