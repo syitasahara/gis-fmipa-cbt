@@ -5,9 +5,9 @@ import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, 
 import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
 import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
+import { checkExamSchedule, examSchedules } from '../utils/examSchedule';
 
-const examDuration = 30 * 60 * 1000; // 90 minutes in milliseconds
-
+const examDuration = 60 * 60 * 1000; // 60 minutes in milliseconds
 
 export default function QuizPage() {
   const router = useRouter();
@@ -64,10 +64,21 @@ export default function QuizPage() {
     checkAuth();
   }, [router]);
 
+  // Check exam schedule
+  const checkSchedule = (jenjang) => checkExamSchedule(jenjang);
+
   // Load questions
   useEffect(() => {
     const loadQuestions = async () => {
       if (!user) return;
+
+      // Check exam schedule first
+      const scheduleCheck = checkSchedule(user.jenjang);
+      if (!scheduleCheck.allowed) {
+        setError(scheduleCheck.message);
+        setIsLoadingQuestions(false);
+        return;
+      }
 
       try {
         setIsLoadingQuestions(true);
@@ -184,6 +195,23 @@ export default function QuizPage() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
+
+  // Auto-refresh when exam hasn't started yet
+  useEffect(() => {
+    if (error && error.includes('dimulai')) {
+      const interval = setInterval(() => {
+        if (user) {
+          const scheduleCheck = checkSchedule(user.jenjang);
+          if (scheduleCheck.allowed) {
+            // Exam time has started, reload the page
+            window.location.reload();
+          }
+        }
+      }, 30000); // Check every 30 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [error, user]);
 
   const handleTimeUp = () => {
     setShowTimeUpModal(true);
@@ -364,12 +392,18 @@ export default function QuizPage() {
         if (showSubmitWarning) setShowSubmitWarning(false);
         setShowSuccessModal(true);
         
-        // Clear localStorage and cookies
+        // Clear localStorage and cookies - including auth token
         localStorage.clear();
         deleteCookie('violations');
+        
+        // Ensure auth token is completely removed
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('authToken');
+        }
+        
         setTimeout(() => {
           router.push('/login');
-        }, 2000);
+        }, 3000); // Increased to 3 seconds to let user see results
       }, 1500);
       
     } catch (error) {
@@ -405,13 +439,37 @@ export default function QuizPage() {
         if (isAutoSubmit) setShowTimeUpModal(false);
         if (showSubmitWarning) setShowSubmitWarning(false);
         setShowSuccessModal(true);
+        
+        // Clear localStorage and cookies even in error case
+        localStorage.clear();
+        deleteCookie('violations');
+        
+        // Ensure auth token is completely removed
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('authToken');
+        }
+        
+        // Redirect to login after showing results
+        setTimeout(() => {
+          router.push('/login');
+        }, 3000);
       }, 1000);
     }
   };
 
   const handleBackToHome = () => {
     setShowSuccessModal(false);
-    router.push('/');
+    
+    // Clear all auth data before going to home
+    localStorage.clear();
+    deleteCookie('violations');
+    
+    // Ensure auth token is completely removed
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('authToken');
+    }
+    
+    router.push('/login'); // Redirect to login instead of home since user is logged out
   };
 
   const terjawab = jawaban.filter(j => j !== null).length;
@@ -453,21 +511,39 @@ export default function QuizPage() {
     );
   }
 
-  // Show error if no questions loaded
-  if (!isLoadingQuestions && questions.length === 0) {
+  // Show error if no questions loaded or schedule not allowed
+  if (!isLoadingQuestions && (questions.length === 0 || error)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 flex items-center justify-center">
         <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md">
           <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Tidak Ada Soal</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">
+            {error && error.includes('dimulai') ? 'Ujian Belum Dimulai' : 
+             error && error.includes('berakhir') ? 'Ujian Telah Berakhir' : 
+             'Tidak Ada Soal'}
+          </h2>
           <p className="text-gray-600 mb-4">
             {error || 'Belum ada soal ujian yang tersedia untuk jenjang Anda.'}
           </p>
+          {error && error.includes('dimulai') && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <p className="text-blue-700 text-sm">
+                Halaman ini akan secara otomatis refresh setiap 30 detik untuk memeriksa waktu ujian.
+              </p>
+            </div>
+          )}
           <button 
-            onClick={() => router.push('/')}
+            onClick={() => {
+              // Clear auth token when going back
+              localStorage.clear();
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('authToken');
+              }
+              router.push('/login');
+            }}
             className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
           >
-            Kembali ke Beranda
+            Kembali ke Login
           </button>
         </div>
       </div>
@@ -521,7 +597,7 @@ export default function QuizPage() {
             <p className="text-gray-700 mb-4 text-center">
               Anda telah meninggalkan halaman ujian 5 kali!
             </p>
-            <p className="text-gray-700 mb-4 text-center font-semibold text-red-600">
+            <p className="text-red-600 mb-4 text-center font-semibold">
               Anda akan didiskualifikasi dan ujian akan diakhiri.
             </p>
             <p className="text-gray-700 mb-6 text-center text-sm">
@@ -629,7 +705,7 @@ export default function QuizPage() {
                 className="flex items-center justify-center space-x-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
               >
                 <Home className="w-4 h-4" />
-                <span>Kembali ke Beranda</span>
+                <span>Kembali ke Login</span>
               </button>
             </div>
           </div>
@@ -680,7 +756,12 @@ export default function QuizPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-800">Gebyar Ilmiah Sains</h1>
-                <p className="text-sm text-gray-600">Science Competition - {user?.jenjang || ''}</p>
+                <p className="text-sm text-gray-600">
+                  Science Competition - {user?.jenjang || ''} 
+                  {user?.jenjang && examSchedules[user.jenjang] && 
+                    ` (${examSchedules[user.jenjang].startTime} - ${examSchedules[user.jenjang].endTime})`
+                  }
+                </p>
               </div>
             </div>
             <div className="flex items-center space-x-6">
