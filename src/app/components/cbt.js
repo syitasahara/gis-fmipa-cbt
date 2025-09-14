@@ -157,7 +157,57 @@ export default function QuizPage() {
     } catch (error) {
       console.error('Error loading user answers:', error);
     }
-  };  // Handle timer
+  };  
+
+  // Refetch answers from server to ensure synchronization
+  const refetchAnswers = async () => {
+    setIsRefetching(true);
+    try {
+      let userId = getCurrentUserId();
+      if (!userId && user && user.id) {
+        userId = user.id;
+      }
+      
+      if (!userId) return;
+
+      console.log('REFETCH: Getting latest answers from server for user:', userId);
+      const userAnswers = await answersAPI.getUserAnswers(userId);
+      
+      console.log('REFETCH: Got answers from server:', userAnswers);
+      
+      // Reset all states first
+      const resetJawaban = Array(questions.length).fill(null);
+      const resetRagu = Array(questions.length).fill(false);
+      const resetIds = Array(questions.length).fill(null);
+      
+      // Map server answers to frontend state
+      userAnswers.forEach(answer => {
+        const questionIndex = questions.findIndex(q => q.id === answer.question_id);
+        if (questionIndex !== -1) {
+          const answerIndex = questions[questionIndex].answers.findIndex(a => a.id === answer.answer_id);
+          if (answerIndex !== -1) {
+            resetJawaban[questionIndex] = answerIndex;
+            resetRagu[questionIndex] = answer.is_doubtful || false;
+            resetIds[questionIndex] = answer.id;
+          }
+        }
+      });
+      
+      // Update all states with server data
+      setJawaban(resetJawaban);
+      setRaguRagu(resetRagu);
+      setUserAnswerIds(resetIds);
+      
+      console.log('REFETCH: Local state synced with server data');
+      
+    } catch (error) {
+      console.error('Error refetching answers from server:', error);
+    } finally {
+      setIsRefetching(false);
+    }
+  };
+
+  // Handle timer
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
@@ -237,12 +287,24 @@ export default function QuizPage() {
   };
 
   // Handle answer submission with API
+  // Loading state for answer submission
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [submittingQuestionIndex, setSubmittingQuestionIndex] = useState(null);
+  const [pendingAnswerIndex, setPendingAnswerIndex] = useState(null); // Track which option is being submitted
+  const [isRefetching, setIsRefetching] = useState(false); // Track refetch status
+
   const handleJawab = async (index) => {
     const currentQuestion = questions[currentSoal - 1];
     if (!currentQuestion) return;
 
     const selectedAnswer = currentQuestion.answers[index];
     if (!selectedAnswer) return;
+
+    // Set loading state
+    setIsSubmittingAnswer(true);
+    setSubmittingQuestionIndex(currentSoal - 1);
+    setPendingAnswerIndex(index);
+    setError(''); // Clear any previous errors
 
     try {
       let userId = getCurrentUserId();
@@ -254,32 +316,52 @@ export default function QuizPage() {
       
       if (!userId) throw new Error('User ID not found');
 
+      console.log('STEP 1: Submitting answer to server FIRST:', {
+        userId,
+        questionId: currentQuestion.id,
+        answerId: selectedAnswer.id,
+        questionNumber: currentSoal,
+        selectedIndex: index
+      });
+
       // If there's an existing answer, delete it first
       const existingAnswerId = userAnswerIds[currentSoal - 1];
       if (existingAnswerId) {
+        console.log('Deleting existing answer:', existingAnswerId);
         await answersAPI.cancelAnswer(existingAnswerId);
       }
 
-      // Submit new answer
+      // STEP 1: Submit new answer to server FIRST
       const response = await answersAPI.submitAnswer(
         userId,
         currentQuestion.id,
         selectedAnswer.id
       );
 
-      // Update local state
-      const updated = [...jawaban];
-      updated[currentSoal - 1] = index;
-      setJawaban(updated);
+      console.log('STEP 2: Server confirmed answer saved:', response);
 
-      // Update answer ID tracking
+      // STEP 3: Update answer ID tracking immediately for this question
       const updatedIds = [...userAnswerIds];
       updatedIds[currentSoal - 1] = response.id || null;
       setUserAnswerIds(updatedIds);
 
+      // STEP 4: Fetch latest data from server to ensure full synchronization
+      console.log('STEP 3: Fetching latest data from server...');
+      await refetchAnswers();
+
+      console.log('STEP 4: Local state fully synced with server after save and refetch');
+
     } catch (error) {
-      console.error('Error submitting answer:', error);
-      setError('Gagal menyimpan jawaban. Silakan coba lagi.');
+      console.error('Error submitting answer to server:', error);
+      setError(`Gagal menyimpan jawaban ke server: ${error.message || 'Silakan coba lagi.'}`);
+      
+      // Don't update local state if server save failed
+      console.log('Local state NOT updated due to server error');
+    } finally {
+      // Clear loading state
+      setIsSubmittingAnswer(false);
+      setSubmittingQuestionIndex(null);
+      setPendingAnswerIndex(null);
     }
   };
 
@@ -861,6 +943,26 @@ export default function QuizPage() {
                 </span>
                 <span>Belum dijawab: {totalSoal - terjawab}</span>
               </div>
+              
+              {/* Saving Status Indicator */}
+              {isSubmittingAnswer && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center text-blue-700 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <span>Menyimpan jawaban ke server dulu, mohon tunggu...</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* Refetching Status Indicator */}
+              {isRefetching && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center text-green-700 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <span>Mengambil data terbaru dari server...</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Question Card */}
@@ -909,46 +1011,71 @@ export default function QuizPage() {
 
 
               <div className="space-y-3 mb-8">
-                {currentQuestion.opsi.map((opsi, idx) => (
-                  <label key={idx} className="block">
-                    <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
-                      jawaban[currentSoal - 1] === idx
-                        ? 'border-purple-500 bg-purple-50 shadow-md'
-                        : 'border-gray-200 hover:border-purple-300 bg-gray-50 hover:bg-gray-100'
-                    }`}>
-                      <div className="flex items-center space-x-4">
-                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                          jawaban[currentSoal - 1] === idx
-                            ? 'border-purple-500 bg-purple-500'
-                            : 'border-gray-300'
-                        }`}>
-                          {jawaban[currentSoal - 1] === idx && (
-                            <div className="w-2 h-2 bg-white rounded-full"></div>
+                {currentQuestion.opsi.map((opsi, idx) => {
+                  const isSelected = jawaban[currentSoal - 1] === idx;
+                  const isPending = isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1 && pendingAnswerIndex === idx;
+                  const isDisabled = (isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1) || isRefetching;
+                  
+                  return (
+                    <label key={idx} className="block">
+                      <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
+                        isSelected
+                          ? 'border-purple-500 bg-purple-50 shadow-md'
+                          : isPending
+                          ? 'border-blue-400 bg-blue-50 shadow-sm'
+                          : 'border-gray-200 hover:border-purple-300 bg-gray-50 hover:bg-gray-100'
+                      } ${isDisabled ? 'opacity-70 cursor-wait' : ''}`}>
+                        <div className="flex items-center space-x-4">
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                            isSelected
+                              ? 'border-purple-500 bg-purple-500'
+                              : isPending
+                              ? 'border-blue-400 bg-blue-400'
+                              : 'border-gray-300'
+                          }`}>
+                            {isPending ? (
+                              <Loader2 className="w-3 h-3 text-white animate-spin" />
+                            ) : isSelected ? (
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <span className={`font-bold text-lg ${
+                              isSelected ? 'text-purple-600' : isPending ? 'text-blue-600' : 'text-gray-600'
+                            }`}>
+                              {String.fromCharCode(65 + idx)}.
+                            </span>
+                            <span className={`text-lg ${
+                              isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
+                            }`}>
+                              {opsi}
+                            </span>
+                          </div>
+                          {isPending && (
+                            <div className="flex items-center text-blue-600 text-sm ml-auto">
+                              <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                              <span>Menyimpan ke server...</span>
+                            </div>
+                          )}
+                          {isRefetching && isSelected && (
+                            <div className="flex items-center text-green-600 text-sm ml-auto">
+                              <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                              <span>Sinkronisasi...</span>
+                            </div>
                           )}
                         </div>
-                        <div className="flex items-center space-x-3">
-                          <span className={`font-bold text-lg ${
-                            jawaban[currentSoal - 1] === idx ? 'text-purple-600' : 'text-gray-600'
-                          }`}>
-                            {String.fromCharCode(65 + idx)}.
-                          </span>
-                          <span className={`text-lg ${
-                            jawaban[currentSoal - 1] === idx ? 'text-gray-800 font-medium' : 'text-gray-700'
-                          }`}>
-                            {opsi}
-                          </span>
-                        </div>
+                        <input
+                          type="radio"
+                          name={`soal-${currentSoal}`}
+                          checked={isSelected}
+                          onChange={() => handleJawab(idx)}
+                          disabled={isDisabled}
+                          className="sr-only"
+                        />
                       </div>
-                      <input
-                        type="radio"
-                        name={`soal-${currentSoal}`}
-                        checked={jawaban[currentSoal - 1] === idx}
-                        onChange={() => handleJawab(idx)}
-                        className="sr-only"
-                      />
-                    </div>
-                  </label>
-                ))}
+                    </label>
+                  );
+                })}
               </div>
 
               {/* Action Buttons */}
