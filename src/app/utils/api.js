@@ -206,7 +206,23 @@ export const answersAPI = {
   },
 
   getResults: async (userId) => {
+    console.log('Getting results for userId:', userId, typeof userId);
+    if (typeof userId === 'object') {
+      console.error('userId is an object:', userId);
+      throw new Error('Invalid userId: expected string or number, got object');
+    }
     return await apiCall(`/exam/results/${userId}`);
+  },
+
+  // Submit final exam with additional data
+  submitExam: async (userId, examData) => {
+    return await apiCall('/exam/submit', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        ...examData
+      })
+    });
   },
 };
 
@@ -223,7 +239,9 @@ export const getCurrentUserId = () => {
   try {
     // Simple JWT decode (you might want to use a proper JWT library)
     const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.sub || payload.user_id || payload.id;
+    const userId = payload.sub || payload.user_id || payload.id;
+    console.log('Extracted userId from token:', userId, typeof userId);
+    return userId;
   } catch (error) {
     console.error('Error decoding token:', error);
     return null;

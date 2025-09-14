@@ -51,6 +51,7 @@ export default function QuizPage() {
 
       try {
         const userData = await authAPI.getCurrentUser();
+        console.log('User data loaded:', userData);
         setUser(userData);
       } catch (error) {
         console.error('Auth error:', error);
@@ -118,7 +119,13 @@ export default function QuizPage() {
     if (!user) return;
 
     try {
-      const userId = getCurrentUserId();
+      let userId = getCurrentUserId();
+      
+      // If getting userId from token fails, try to get it from user object
+      if (!userId && user && user.id) {
+        userId = user.id;
+      }
+      
       if (!userId) return;
 
       const userAnswers = await answersAPI.getUserAnswers(userId);
@@ -238,7 +245,13 @@ export default function QuizPage() {
     if (!selectedAnswer) return;
 
     try {
-      const userId = getCurrentUserId();
+      let userId = getCurrentUserId();
+      
+      // If getting userId from token fails, try to get it from user object
+      if (!userId && user && user.id) {
+        userId = user.id;
+      }
+      
       if (!userId) throw new Error('User ID not found');
 
       // If there's an existing answer, delete it first
@@ -336,8 +349,17 @@ export default function QuizPage() {
     setIsSubmitting(true);
     
     try {
-      const userId = getCurrentUserId();
+      let userId = getCurrentUserId();
+      
+      // If getting userId from token fails, try to get it from user object
+      if (!userId && user && user.id) {
+        userId = user.id;
+        console.log('Using userId from user object:', userId, typeof userId);
+      }
+      
       if (!userId) throw new Error('User ID not found');
+      
+      console.log('Submitting exam for userId:', userId, typeof userId);
 
       // Calculate duration
       const usedDuration = examDuration - timeLeft;
@@ -346,15 +368,20 @@ export default function QuizPage() {
       // Get violations count from cookie
       const totalViolations = parseInt(getCookie('violations') || '0');
       
-      // Get final results from backend with additional data
-      const payload = {
-        userId,
-        durationInMinutes,
-        totalViolations,
-        isAutoSubmit
-      };
+      // Submit exam data first
+      try {
+        await answersAPI.submitExam(userId, {
+          durationInMinutes,
+          totalViolations,
+          isAutoSubmit
+        });
+      } catch (submitError) {
+        console.warn('Failed to submit exam data:', submitError);
+        // Continue to get results even if submit fails
+      }
       
-      const results = await answersAPI.getResults(payload);
+      // Get final results from backend
+      const results = await answersAPI.getResults(userId);
       
       const terjawab = jawaban.filter(j => j !== null).length;
       const ragu = raguRagu.filter(r => r === true).length;
