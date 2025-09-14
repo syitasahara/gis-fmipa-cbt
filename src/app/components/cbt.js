@@ -288,7 +288,12 @@ export default function QuizPage() {
     if (jawaban[currentSoal - 1] === null) return;
 
     const answerId = userAnswerIds[currentSoal - 1];
-    if (!answerId) return;
+    console.log('Toggling doubt for answerId:', answerId, 'for question:', currentSoal);
+    
+    if (!answerId) {
+      setError('Tidak dapat mengubah status ragu-ragu. ID jawaban tidak ditemukan.');
+      return;
+    }
 
     try {
       await answersAPI.toggleDoubt(answerId);
@@ -296,16 +301,29 @@ export default function QuizPage() {
       const updated = [...raguRagu];
       updated[currentSoal - 1] = !updated[currentSoal - 1];
       setRaguRagu(updated);
+      
+      console.log('Doubt toggled successfully for answerId:', answerId);
     } catch (error) {
       console.error('Error toggling doubt:', error);
-      setError('Gagal mengubah status ragu-ragu. Silakan coba lagi.');
+      
+      // Fallback: Update UI optimistically even if API fails
+      const updated = [...raguRagu];
+      updated[currentSoal - 1] = !updated[currentSoal - 1];
+      setRaguRagu(updated);
+      
+      setError(`Status ragu-ragu diubah locally (server error: ${error.message || 'Unknown'})`);
     }
   };
 
   // Cancel answer with API
   const batalkanJawaban = async () => {
     const answerId = userAnswerIds[currentSoal - 1];
-    if (!answerId) return;
+    console.log('Canceling answer for answerId:', answerId, 'for question:', currentSoal);
+    
+    if (!answerId) {
+      setError('Tidak dapat membatalkan jawaban. ID jawaban tidak ditemukan.');
+      return;
+    }
 
     try {
       await answersAPI.cancelAnswer(answerId);
@@ -321,9 +339,25 @@ export default function QuizPage() {
       setJawaban(updatedJawaban);
       setRaguRagu(updatedRagu);
       setUserAnswerIds(updatedIds);
+      
+      console.log('Answer canceled successfully for answerId:', answerId);
     } catch (error) {
       console.error('Error canceling answer:', error);
-      setError('Gagal membatalkan jawaban. Silakan coba lagi.');
+      
+      // Fallback: Update UI optimistically even if API fails
+      const updatedJawaban = [...jawaban];
+      const updatedRagu = [...raguRagu];
+      const updatedIds = [...userAnswerIds];
+      
+      updatedJawaban[currentSoal - 1] = null;
+      updatedRagu[currentSoal - 1] = false;
+      updatedIds[currentSoal - 1] = null;
+      
+      setJawaban(updatedJawaban);
+      setRaguRagu(updatedRagu);
+      setUserAnswerIds(updatedIds);
+      
+      setError(`Jawaban dibatalkan locally (server error: ${error.message || 'Unknown'})`);
     }
   };
 

@@ -8,6 +8,8 @@ async function proxyRequest(request, endpoint) {
     const searchParams = url.searchParams.toString();
     const fullEndpoint = searchParams ? `${endpoint}?${searchParams}` : endpoint;
     
+    console.log(`Proxying ${request.method} request to: ${BACKEND_URL}${fullEndpoint}`);
+    
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
@@ -17,6 +19,9 @@ async function proxyRequest(request, endpoint) {
     const authHeader = request.headers.get('authorization');
     if (authHeader) {
       headers.Authorization = authHeader;
+      console.log('Authorization header forwarded');
+    } else {
+      console.log('No authorization header found');
     }
 
     const config = {
@@ -27,10 +32,16 @@ async function proxyRequest(request, endpoint) {
     // Add body for non-GET requests
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       config.body = await request.text();
+      console.log(`Request body: ${config.body}`);
     }
 
     const response = await fetch(`${BACKEND_URL}${fullEndpoint}`, config);
     const data = await response.text();
+
+    console.log(`Backend response status: ${response.status}`);
+    if (!response.ok) {
+      console.error(`Backend error: ${data}`);
+    }
 
     return new NextResponse(data, {
       status: response.status,
@@ -44,7 +55,7 @@ async function proxyRequest(request, endpoint) {
   } catch (error) {
     console.error('Proxy error:', error);
     return NextResponse.json(
-      { message: 'Proxy server error' },
+      { message: 'Proxy server error', error: error.message },
       { status: 500 }
     );
   }

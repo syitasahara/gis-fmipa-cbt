@@ -1,8 +1,8 @@
 // API utility functions for backend integration
 // Use relative URL to leverage Next.js proxy and avoid CORS
 const API_BASE_URL = '/api';
-// Fallback direct URL for development testing
-const API_DIRECT_URL = 'https://gis-backend.karyavisual.com/api';
+// Fallback direct URL for development testing - MUST match the proxy URL
+const API_DIRECT_URL = 'https://ujicoba-gis-backend.karyavisual.com/api';
 
 // Get token from localStorage
 const getToken = () => {
@@ -184,9 +184,17 @@ export const answersAPI = {
   },
 
   cancelAnswer: async (answerId) => {
-    return await apiCall(`/exam/user-answers/${answerId}`, {
-      method: 'DELETE',
-    });
+    console.log('Calling cancelAnswer API for answerId:', answerId);
+    try {
+      const result = await apiCall(`/exam/user-answers/${answerId}`, {
+        method: 'DELETE',
+      });
+      console.log('cancelAnswer API success:', result);
+      return result;
+    } catch (error) {
+      console.error('cancelAnswer API error:', error);
+      throw error;
+    }
   },
 
   getUserAnswers: async (userId) => {
@@ -194,9 +202,17 @@ export const answersAPI = {
   },
 
   toggleDoubt: async (answerId) => {
-    return await apiCall(`/exam/user-answers/${answerId}/toggle-doubt`, {
-      method: 'PATCH',
-    });
+    console.log('Calling toggleDoubt API for answerId:', answerId);
+    try {
+      const result = await apiCall(`/exam/user-answers/${answerId}/toggle-doubt`, {
+        method: 'PATCH',
+      });
+      console.log('toggleDoubt API success:', result);
+      return result;
+    } catch (error) {
+      console.error('toggleDoubt API error:', error);
+      throw error;
+    }
   },
 
   unsetDoubt: async (answerId) => {
