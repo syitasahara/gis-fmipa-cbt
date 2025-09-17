@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, AlertTriangle, Image, Table, CheckCircle, Home, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
@@ -147,10 +147,10 @@ export default function QuizPage() {
     };
 
     loadQuestions();
-  }, [user]);
+  }, [user, loadUserAnswers]);
 
   // Load existing user answers
-  const loadUserAnswers = async (questionsData) => {
+  const loadUserAnswers = useCallback(async (questionsData) => {
     if (!user) return;
 
     try {
@@ -192,7 +192,7 @@ export default function QuizPage() {
     } catch (error) {
       console.error('Error loading user answers:', error);
     }
-  };  
+  }, [user]);  
 
   // Refetch answers from server to ensure synchronization
   const refetchAnswers = async () => {
@@ -256,7 +256,7 @@ export default function QuizPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [handleTimeUp]);
 
   // Initialize violations from cookies
   useEffect(() => {
@@ -305,12 +305,12 @@ export default function QuizPage() {
     }
   }, [error, user]);
 
-  const handleTimeUp = () => {
+  const handleTimeUp = useCallback(() => {
     setShowTimeUpModal(true);
     setTimeout(() => {
       kirimJawaban(true);
     }, 3000);
-  };
+  }, []);
 
   const formatTime = (ms) => {
     const hours = Math.floor(ms / 3600000);

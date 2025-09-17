@@ -101,7 +101,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
           <div className="grid lg:grid-cols-2 gap-0">
             {/* Left Column - Login Form */}
-            <div className="p-8 lg:p-12")
+            <div className="p-8 lg:p-12">
               {/* Mobile Header */}
               <div className="text-center mb-8 lg:hidden">
                 <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-2xl shadow-lg mx-auto w-fit mb-4">
