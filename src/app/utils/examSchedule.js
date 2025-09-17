@@ -4,11 +4,11 @@
 export const examSchedules = {
   'sd': {
     startTime: '11:00',
-    endTime: '20:00'
+    endTime: '23:59'
   },
   'smp': {
     startTime: '11:00', 
-    endTime: '20:00'
+    endTime: '23:59'
   }
 };
 
