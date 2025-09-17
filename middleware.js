@@ -8,19 +8,23 @@ export function middleware(request) {
   // Protected routes that need authentication
   if (path.startsWith('/quiz') || path.startsWith('/start-exam')) {
     if (!token) {
-      // Redirect to login if no token found
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
-
-    // If accessing start-exam directly and already has token, redirect to quiz
-    if (path.startsWith('/start-exam') && token) {
-      return NextResponse.redirect(new URL('/quiz', request.url));
+      // Only redirect to login if no token found and not already on login page
+      if (!path.startsWith('/login')) {
+        console.log('Middleware: No token found, redirecting to login from', path);
+        return NextResponse.redirect(new URL('/login', request.url));
+      }
     }
   }
 
-  // If already logged in and trying to access login page or root, redirect to quiz
-  if ((path === '/login' || path === '/') && token) {
-    return NextResponse.redirect(new URL('/quiz', request.url));
+  // If already logged in and trying to access login page, redirect to start-exam
+  if (path === '/login' && token) {
+    console.log('Middleware: Token found on login page, redirecting to start-exam');
+    return NextResponse.redirect(new URL('/start-exam', request.url));
+  }
+
+  // Root path redirect to login (no longer redirect authenticated users to quiz automatically)
+  if (path === '/') {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();

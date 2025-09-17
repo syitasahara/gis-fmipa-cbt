@@ -12,17 +12,21 @@ const getToken = () => {
   return null;
 };
 
-// Set token to localStorage
+// Set token to localStorage and cookies
 const setToken = (token) => {
   if (typeof window !== 'undefined') {
     localStorage.setItem('authToken', token);
+    // Also set in cookies for middleware
+    document.cookie = `token=${token}; path=/; max-age=86400; SameSite=Strict`; // 24 hours
   }
 };
 
-// Remove token from localStorage
+// Remove token from localStorage and cookies
 const removeToken = () => {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('authToken');
+    // Also remove from cookies
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
   }
 };
 
@@ -145,6 +149,24 @@ export const questionsAPI = {
     return await apiCall(`/exam/questions${queryParam}`);
   },
 
+  // Get all questions for a specific level (for randomization)
+  getAllQuestions: async (level = null) => {
+    const queryParam = level ? `?level=${level}&all=true` : '?all=true';
+    return await apiCall(`/exam/questions${queryParam}`);
+  },
+
+  // Get randomized questions for user
+  getRandomizedQuestions: async (level = null, userId = null, limit = null) => {
+    const params = new URLSearchParams();
+    if (level) params.append('level', level);
+    if (userId) params.append('user_id', userId);
+    if (limit) params.append('limit', limit);
+    params.append('randomized', 'true');
+    
+    const queryParam = params.toString() ? `?${params.toString()}` : '';
+    return await apiCall(`/exam/questions${queryParam}`);
+  },
+
   getQuestion: async (id) => {
     return await apiCall(`/exam/questions/${id}`);
   },
@@ -249,7 +271,27 @@ export const answersAPI = {
 
 // Helper function to check if user is authenticated
 export const isAuthenticated = () => {
-  return !!getToken();
+  const token = getToken();
+  if (!token) return false;
+  
+  try {
+    // Simple JWT decode to check if token is valid format
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    
+    // Check if token has expired
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      console.log('Token has expired');
+      removeToken();
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Invalid token format:', error);
+    removeToken();
+    return false;
+  }
 };
 
 // Helper function to get current user ID from token (you might need to decode JWT)
@@ -269,4 +311,5 @@ export const getCurrentUserId = () => {
   }
 };
 
+// Export token management functions
 export { getToken, setToken, removeToken };

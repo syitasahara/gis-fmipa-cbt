@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, Clock, Calendar } from 'lucide-react';
-import { authAPI } from '../utils/api';
+import { authAPI, removeToken } from '../utils/api';
 import { checkExamSchedule, examSchedules, getCurrentExamStatus, getTimeUntilExamStarts } from '../utils/examSchedule';
 import { isExamInProgress } from '../utils/examProtection';
 
@@ -22,10 +22,28 @@ export default function LoginPage() {
 
   // Update current time and exam statuses every minute
   useEffect(() => {
-    // Jika ujian sedang berlangsung, redirect ke quiz
+    // Only redirect to quiz if exam is in progress AND user is authenticated
     if (isExamInProgress()) {
-      router.push('/quiz');
-      return;
+      // Check if user has a valid token before redirecting
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+      if (token) {
+        console.log('Exam in progress and user authenticated, redirecting to quiz');
+        router.push('/quiz');
+        return;
+      } else {
+        console.log('Exam in progress but user not authenticated, staying on login');
+        // Clear exam protection cookies if user is not authenticated
+        if (typeof document !== 'undefined') {
+          document.cookie = 'examStarted=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          document.cookie = 'examStartTime=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          document.cookie = 'examEndTime=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('examStarted');
+          localStorage.removeItem('examStartTime');
+          localStorage.removeItem('examEndTime');
+        }
+      }
     }
     
     const updateStatus = () => {
@@ -72,16 +90,18 @@ export default function LoginPage() {
         if (!scheduleCheck.allowed) {
           // If exam is not allowed at this time, clear token and show error
           // Don't call logout API, just clear local storage
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('authToken');
-          }
+          removeToken();
           setError(scheduleCheck.message);
           return;
         }
       }
       
       // Login successful and schedule is valid, redirect to start-exam page
-      router.push('/start-exam');
+      console.log('Login successful, redirecting to start-exam');
+      // Small delay to ensure token is properly set
+      setTimeout(() => {
+        router.push('/start-exam');
+      }, 100);
     } catch (err) {
       // Handle different types of errors
       let errorMessage = 'Login gagal. Periksa email dan password Anda.';

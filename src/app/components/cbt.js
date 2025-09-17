@@ -3,10 +3,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, AlertTriangle, Image, Table, CheckCircle, Home, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
+import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId, removeToken } from '../utils/api';
 import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
 import { checkExamSchedule, examSchedules } from '../utils/examSchedule';
 import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
+import { 
+  randomizeQuestionsAndAnswers, 
+  transformApiQuestions, 
+  filterQuestionsByLevel,
+  generateUserSeed 
+} from '../utils/questionRandomizer';
 
 const examDuration = 60 * 60 * 1000; // 60 minutes in milliseconds
 
@@ -17,6 +23,7 @@ export default function QuizPage() {
   // Authentication & User state
   const [user, setUser] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [isRedirecting, setIsRedirecting] = useState(false); // Prevent multiple redirects
   
   // Questions & Exam state
   const [questions, setQuestions] = useState([]);
@@ -45,27 +52,73 @@ export default function QuizPage() {
 
   // Authentication check
   useEffect(() => {
+    let isMounted = true; // Prevent state updates if component unmounts
+    
     const checkAuth = async () => {
-      if (!isAuthenticated()) {
-        router.push('/login');
+      // Prevent multiple redirects
+      if (isRedirecting) {
+        console.log('Already redirecting, skipping auth check');
         return;
       }
-
+      
       try {
+        // First check if token exists
+        if (!isAuthenticated()) {
+          console.log('No token found, redirecting to login');
+          if (isMounted && !isRedirecting) {
+            setIsRedirecting(true);
+            router.push('/login');
+          }
+          return;
+        }
+
+        console.log('Token found, verifying with server...');
+        
+        // Then verify token with server
         const userData = await authAPI.getCurrentUser();
-        console.log('User data loaded:', userData);
-        setUser(userData);
+        console.log('User data loaded successfully:', userData);
+        if (isMounted) {
+          setUser(userData);
+        }
       } catch (error) {
-        console.error('Auth error:', error);
-        router.push('/login');
+        console.error('Auth verification failed:', error);
+        
+        // If auth fails, clear token and redirect to login
+        removeToken();
+        
+        // Clear exam protection if auth fails
+        if (typeof document !== 'undefined') {
+          document.cookie = 'examStarted=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          document.cookie = 'examStartTime=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          document.cookie = 'examEndTime=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('examStarted');
+          localStorage.removeItem('examStartTime');
+          localStorage.removeItem('examEndTime');
+        }
+        
+        // Add a delay to prevent infinite redirect loops
+        if (isMounted && !isRedirecting) {
+          setIsRedirecting(true);
+          setTimeout(() => {
+            router.push('/login');
+          }, 1000);
+        }
         return;
       } finally {
-        setIsLoadingAuth(false);
+        if (isMounted) {
+          setIsLoadingAuth(false);
+        }
       }
     };
 
     checkAuth();
-  }, [router]);
+    
+    return () => {
+      isMounted = false; // Cleanup function
+    };
+  }, [router, isRedirecting]);
 
   // Pencegahan navigasi browser dan tab close
   useEffect(() => {
@@ -103,6 +156,76 @@ export default function QuizPage() {
   // Check exam schedule
   const checkSchedule = (jenjang) => checkExamSchedule(jenjang);
 
+  // Seeded random function for consistent randomization
+  const seededRandom = (seed) => {
+    let m = 0x80000000; // 2**31
+    let a = 1103515245;
+    let c = 12345;
+    
+    return function() {
+      seed = (a * seed + c) % m;
+      return seed / (m - 1);
+    };
+  };
+
+  // Cookie-based doubt management
+  const saveRaguRaguToCookie = (raguArray) => {
+    if (!user) return;
+    const cookieKey = `ragu_ragu_${user.id}_${user.jenjang}`;
+    setCookie(cookieKey, JSON.stringify(raguArray), 7); // Expire in 7 days
+  };
+
+  const loadRaguRaguFromCookie = (questionsLength) => {
+    if (!user) return Array(questionsLength).fill(false);
+    const cookieKey = `ragu_ragu_${user.id}_${user.jenjang}`;
+    const savedRagu = getCookie(cookieKey);
+    if (savedRagu) {
+      try {
+        const parsed = JSON.parse(savedRagu);
+        // Ensure array length matches current questions
+        if (Array.isArray(parsed) && parsed.length === questionsLength) {
+          return parsed;
+        }
+      } catch (error) {
+        console.error('Error parsing ragu-ragu from cookie:', error);
+      }
+    }
+    return Array(questionsLength).fill(false);
+  };
+
+  // Get or create consistent seed for this user session
+  const getUserSeed = () => {
+    const sessionKey = `exam_seed_${user?.id}_${user?.jenjang}`;
+    let seed = localStorage.getItem(sessionKey);
+    
+    if (!seed) {
+      // Create new seed based on user ID and current date (so it's different each day)
+      const today = new Date().toDateString();
+      seed = `${user?.id || 'guest'}_${today}`.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0);
+      
+      // Ensure positive number
+      seed = Math.abs(seed);
+      localStorage.setItem(sessionKey, seed.toString());
+    }
+    
+    return parseInt(seed);
+  };
+
+  // Fisher-Yates shuffle algorithm with seeded random
+  const shuffleArraySeeded = (array, seed) => {
+    const shuffled = [...array];
+    const random = seededRandom(seed);
+    
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
   // Load questions
   useEffect(() => {
     const loadQuestions = async () => {
@@ -118,29 +241,62 @@ export default function QuizPage() {
 
       try {
         setIsLoadingQuestions(true);
-        const questionsData = await questionsAPI.getQuestions(user.jenjang);
         
-        // Transform backend data to frontend format
-        const transformedQuestions = questionsData.map(q => ({
-          id: q.id,
-          pertanyaan: q.question_text || '',
-          type: q.type,
-          question_img_url: q.question_img || null,
-          answers: q.answers || [],
-          opsi: q.answers?.map(a => a.answer_text || a.answer_img || '') || []
-        }));
+        // Get all questions for the user's level dynamically from API
+        console.log(`Loading questions for level: ${user.jenjang}`);
+        const questionsData = await questionsAPI.getAllQuestions(user.jenjang);
+        
+        console.log('Raw questions data from API:', questionsData);
+        
+        // Validate questions data
+        if (!Array.isArray(questionsData)) {
+          throw new Error('Questions data is not an array');
+        }
 
-        setQuestions(transformedQuestions);
-        setTotalSoal(transformedQuestions.length);
-        setJawaban(Array(transformedQuestions.length).fill(null));
-        setRaguRagu(Array(transformedQuestions.length).fill(false));
-        setUserAnswerIds(Array(transformedQuestions.length).fill(null));
+        if (questionsData.length === 0) {
+          throw new Error(`No questions found for level: ${user.jenjang}`);
+        }
+        
+        // Transform API data to internal format using the new utility
+        const transformedQuestions = transformApiQuestions(questionsData);
+        
+        console.log('Transformed questions:', transformedQuestions);
+
+        if (transformedQuestions.length === 0) {
+          throw new Error('No valid questions after transformation');
+        }
+
+        // Get user ID for consistent randomization
+        const userId = getCurrentUserId() || user.id || user.email || 'anonymous';
+        
+        // Apply dynamic randomization based on user and level
+        const randomizedQuestions = randomizeQuestionsAndAnswers(
+          transformedQuestions, 
+          userId, 
+          user.jenjang
+        );
+
+        console.log('Dynamically randomized questions:', randomizedQuestions);
+
+        // Update state with randomized questions
+        setQuestions(randomizedQuestions);
+        setTotalSoal(randomizedQuestions.length);
+        setJawaban(Array(randomizedQuestions.length).fill(null));
+        
+        // Load ragu-ragu from cookies
+        const savedRaguRagu = loadRaguRaguFromCookie(randomizedQuestions.length);
+        setRaguRagu(savedRaguRagu);
+        
+        setUserAnswerIds(Array(randomizedQuestions.length).fill(null));
 
         // Load existing user answers if any
-        await loadUserAnswers(transformedQuestions);
+        await loadUserAnswers(randomizedQuestions);
+        
+        console.log(`Successfully loaded and randomized ${randomizedQuestions.length} questions for user ${userId}, level ${user.jenjang}`);
+        
       } catch (error) {
         console.error('Error loading questions:', error);
-        setError('Gagal memuat soal ujian. Silakan refresh halaman.');
+        setError(`Gagal memuat soal ujian: ${error.message}. Silakan refresh halaman.`);
       } finally {
         setIsLoadingQuestions(false);
       }
@@ -210,10 +366,11 @@ export default function QuizPage() {
       
       console.log('REFETCH: Got answers from server:', userAnswers);
       
-      // Reset all states first
+      // Reset jawaban and IDs, but preserve ragu-ragu from cookies
       const resetJawaban = Array(questions.length).fill(null);
-      const resetRagu = Array(questions.length).fill(false);
       const resetIds = Array(questions.length).fill(null);
+      // Keep ragu-ragu from cookies instead of server
+      const preservedRagu = loadRaguRaguFromCookie(questions.length);
       
       // Map server answers to frontend state
       userAnswers.forEach(answer => {
@@ -222,15 +379,14 @@ export default function QuizPage() {
           const answerIndex = questions[questionIndex].answers.findIndex(a => a.id === answer.answer_id);
           if (answerIndex !== -1) {
             resetJawaban[questionIndex] = answerIndex;
-            resetRagu[questionIndex] = answer.is_doubtful || false;
             resetIds[questionIndex] = answer.id;
           }
         }
       });
       
-      // Update all states with server data
+      // Update states - preserving ragu-ragu from cookies
       setJawaban(resetJawaban);
-      setRaguRagu(resetRagu);
+      setRaguRagu(preservedRagu); // Use cookie data instead of server data
       setUserAnswerIds(resetIds);
       
       console.log('REFETCH: Local state synced with server data');
@@ -399,18 +555,21 @@ export default function QuizPage() {
     }
   };
 
-  // Toggle ragu-ragu (visual only - no API call)
+  // Toggle ragu-ragu (save to cookie for persistence)
   const toggleRaguRagu = () => {
     if (jawaban[currentSoal - 1] === null) return;
 
-    console.log('Toggling doubt (visual only) for question:', currentSoal);
+    console.log('Toggling doubt (with cookie persistence) for question:', currentSoal);
     
-    // Update UI state only - no backend call
+    // Update UI state and save to cookie
     const updated = [...raguRagu];
     updated[currentSoal - 1] = !updated[currentSoal - 1];
     setRaguRagu(updated);
     
-    console.log('Doubt status changed (visual only):', updated[currentSoal - 1] ? 'marked as doubtful' : 'unmarked');
+    // Save to cookies for persistence
+    saveRaguRaguToCookie(updated);
+    
+    console.log('Doubt status changed and saved to cookie:', updated[currentSoal - 1] ? 'marked as doubtful' : 'unmarked');
   };
 
   // Cancel answer with API
@@ -438,6 +597,9 @@ export default function QuizPage() {
       setRaguRagu(updatedRagu);
       setUserAnswerIds(updatedIds);
       
+      // Save updated ragu-ragu to cookies
+      saveRaguRaguToCookie(updatedRagu);
+      
       console.log('Answer canceled successfully for answerId:', answerId);
     } catch (error) {
       console.error('Error canceling answer:', error);
@@ -454,6 +616,9 @@ export default function QuizPage() {
       setJawaban(updatedJawaban);
       setRaguRagu(updatedRagu);
       setUserAnswerIds(updatedIds);
+      
+      // Save updated ragu-ragu to cookies
+      saveRaguRaguToCookie(updatedRagu);
       
       setError(`Jawaban dibatalkan locally (server error: ${error.message || 'Unknown'})`);
     }
@@ -554,9 +719,15 @@ export default function QuizPage() {
         if (showSubmitWarning) setShowSubmitWarning(false);
         setShowSuccessModal(true);
         
-        // Clear localStorage and cookies - including auth token
+        // Clear localStorage and cookies - including auth token and randomization seed
         localStorage.clear();
         deleteCookie('violations');
+        
+        // Specifically clear exam seed for this user
+        if (user?.id && user?.jenjang) {
+          const sessionKey = `exam_seed_${user.id}_${user.jenjang}`;
+          localStorage.removeItem(sessionKey);
+        }
         
         // Ensure auth token is completely removed
         if (typeof window !== 'undefined') {
@@ -608,6 +779,12 @@ export default function QuizPage() {
         // Clear localStorage and cookies even in error case
         localStorage.clear();
         deleteCookie('violations');
+        
+        // Specifically clear exam seed for this user
+        if (user?.id && user?.jenjang) {
+          const sessionKey = `exam_seed_${user.id}_${user.jenjang}`;
+          localStorage.removeItem(sessionKey);
+        }
         
         // Ensure auth token is completely removed
         if (typeof window !== 'undefined') {
@@ -734,19 +911,19 @@ export default function QuizPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50">
       {/* Warning Modals */}
       {showWarning && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-md w-full">
             <div className="flex items-center justify-center mb-4">
-              <AlertTriangle className="w-10 h-10 text-amber-500" />
+              <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-amber-500" />
             </div>
-            <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Peringatan!</h2>
-            <p className="text-gray-700 mb-4 text-center">
+            <h2 className="text-lg sm:text-xl font-bold text-center mb-3 text-gray-800">Peringatan!</h2>
+            <p className="text-gray-700 mb-4 text-center text-sm sm:text-base">
               Anda telah meninggalkan halaman ujian {violations} kali. Jika melakukan ini lebih dari 5x, Anda akan didiskualifikasi.
             </p>
             <div className="flex justify-center">
               <button 
                 onClick={() => setShowWarning(false)}
-                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                className="px-4 sm:px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm sm:text-base"
               >
                 Mengerti
               </button>
@@ -756,19 +933,19 @@ export default function QuizPage() {
       )}
 
       {showCheatingWarning && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-md w-full">
             <div className="flex items-center justify-center mb-4">
-              <AlertTriangle className="w-10 h-10 text-red-500" />
+              <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-red-500" />
             </div>
-            <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Pelanggaran!</h2>
-            <p className="text-gray-700 mb-4 text-center">
+            <h2 className="text-lg sm:text-xl font-bold text-center mb-3 text-gray-800">Pelanggaran!</h2>
+            <p className="text-gray-700 mb-4 text-center text-sm sm:text-base">
               Anda telah meninggalkan halaman ujian 5 kali!
             </p>
-            <p className="text-red-600 mb-4 text-center font-semibold">
+            <p className="text-red-600 mb-4 text-center font-semibold text-sm sm:text-base">
               Anda akan didiskualifikasi dan ujian akan diakhiri.
             </p>
-            <p className="text-gray-700 mb-6 text-center text-sm">
+            <p className="text-gray-700 mb-6 text-center text-xs sm:text-sm">
               Data jawaban Anda akan disimpan dan dikirim secara otomatis.
             </p>
             <div className="flex justify-center gap-4">
@@ -777,7 +954,7 @@ export default function QuizPage() {
                   setShowCheatingWarning(false);
                   kirimJawaban(true);
                 }}
-                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                className="px-4 sm:px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm sm:text-base"
               >
                 Saya Mengerti
               </button>
@@ -787,25 +964,25 @@ export default function QuizPage() {
       )}
 
       {showSubmitWarning && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-md w-full">
             <div className="flex items-center justify-center mb-4">
-              <AlertTriangle className="w-10 h-10 text-amber-500" />
+              <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-amber-500" />
             </div>
-            <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Ada Jawaban Ragu-ragu!</h2>
-            <p className="text-gray-700 mb-4 text-center">
+            <h2 className="text-lg sm:text-xl font-bold text-center mb-3 text-gray-800">Ada Jawaban Ragu-ragu!</h2>
+            <p className="text-gray-700 mb-4 text-center text-sm sm:text-base">
               Anda memiliki {ragu} soal yang ditandai ragu-ragu. Yakin ingin melanjutkan?
             </p>
-            <div className="flex justify-center space-x-4">
+            <div className="flex flex-col sm:flex-row justify-center space-y-2 sm:space-y-0 sm:space-x-4">
               <button 
                 onClick={() => setShowSubmitWarning(false)}
-                className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition"
+                className="px-4 sm:px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition text-sm sm:text-base"
               >
                 Periksa Lagi
               </button>
               <button 
                 onClick={() => kirimJawaban(false)}
-                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                className="px-4 sm:px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm sm:text-base"
               >
                 Kirim Saja
               </button>
@@ -815,13 +992,13 @@ export default function QuizPage() {
       )}
 
       {showTimeUpModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-md w-full">
             <div className="flex items-center justify-center mb-4">
-              <Clock className="w-10 h-10 text-red-500" />
+              <Clock className="w-8 h-8 sm:w-10 sm:h-10 text-red-500" />
             </div>
-            <h2 className="text-xl font-bold text-center mb-3 text-gray-800">Waktu Habis!</h2>
-            <p className="text-gray-700 mb-4 text-center">
+            <h2 className="text-lg sm:text-xl font-bold text-center mb-3 text-gray-800">Waktu Habis!</h2>
+            <p className="text-gray-700 mb-4 text-center text-sm sm:text-base">
               Waktu ujian telah berakhir. Jawaban Anda akan otomatis dikirim.
             </p>
           </div>
@@ -830,17 +1007,17 @@ export default function QuizPage() {
 
       {/* Success Modal */}
       {showSuccessModal && submissionResult && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-center mb-4">
-              <CheckCircle className="w-12 h-12 text-emerald-500" />
+              <CheckCircle className="w-10 h-10 sm:w-12 sm:h-12 text-emerald-500" />
             </div>
-            <h2 className="text-2xl font-bold text-center mb-4 text-emerald-600">
+            <h2 className="text-xl sm:text-2xl font-bold text-center mb-4 text-emerald-600">
               Jawaban Berhasil Dikirim!
             </h2>
             
-            <div className="bg-emerald-50 rounded-lg p-4 mb-4 border border-emerald-100">
-              <div className="text-center text-sm text-emerald-700 mb-2">
+            <div className="bg-emerald-50 rounded-lg p-3 sm:p-4 mb-4 border border-emerald-100">
+              <div className="text-center text-xs sm:text-sm text-emerald-700 mb-2">
                 {submissionResult.isAutoSubmit ? 'Waktu ujian telah habis. Jawaban otomatis dikirim.' : 'Jawaban Anda telah berhasil dikirimkan.'}
               </div>
               <div className="text-xs text-emerald-600 text-center">
@@ -848,20 +1025,20 @@ export default function QuizPage() {
               </div>
             </div>
             
-            <div className="space-y-3 mb-6">
-              <div className="flex justify-between items-center">
+            <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
+              <div className="flex justify-between items-center text-sm sm:text-base">
                 <span className="text-gray-600">Total Soal:</span>
                 <span className="font-medium text-gray-600">{submissionResult.totalQuestions}</span>
               </div>
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center text-sm sm:text-base">
                 <span className="text-gray-600">Terjawab:</span>
                 <span className="font-medium text-emerald-600">{submissionResult.answered}</span>
               </div>
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center text-sm sm:text-base">
                 <span className="text-gray-600">Belum Dijawab:</span>
                 <span className="font-medium text-amber-600">{submissionResult.unanswered}</span>
               </div>
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center text-sm sm:text-base">
                 <span className="text-gray-600">Ditandai Ragu-ragu:</span>
                 <span className="font-medium text-amber-600">{submissionResult.marked}</span>
               </div>
@@ -870,7 +1047,7 @@ export default function QuizPage() {
             <div className="flex justify-center">
               <button 
                 onClick={handleBackToHome}
-                className="flex items-center justify-center space-x-2 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                className="flex items-center justify-center space-x-2 px-4 sm:px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm sm:text-base"
               >
                 <Home className="w-4 h-4" />
                 <span>Kembali ke Login</span>
@@ -882,21 +1059,21 @@ export default function QuizPage() {
 
       {/* Final Submit Confirmation Modal */}
       {showFinalSubmitConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           {/* Overlay transparan agar klik di luar modal menutup modal */}
           <div
             className="absolute inset-0 bg-black bg-opacity-10"
             onClick={() => setShowFinalSubmitConfirm(false)}
           />
-          <div className="relative bg-white rounded-xl p-6 max-w-sm w-full mx-4 text-center shadow-2xl border border-purple-100">
-            <h2 className="text-xl font-bold mb-4 text-gray-800">Kirim Jawaban?</h2>
-            <p className="text-gray-700 mb-6">
+          <div className="relative bg-white rounded-xl p-4 sm:p-6 max-w-sm w-full text-center shadow-2xl border border-purple-100">
+            <h2 className="text-lg sm:text-xl font-bold mb-4 text-gray-800">Kirim Jawaban?</h2>
+            <p className="text-gray-700 mb-4 sm:mb-6 text-sm sm:text-base">
               Yakin ingin mengirim jawaban? Jawaban yang sudah dikirim tidak dapat diubah lagi.
             </p>
-            <div className="flex justify-center gap-4">
+            <div className="flex flex-col sm:flex-row justify-center gap-2 sm:gap-4">
               <button
                 onClick={() => setShowFinalSubmitConfirm(false)}
-                className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition"
+                className="px-4 sm:px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition text-sm sm:text-base"
               >
                 Batal
               </button>
@@ -905,7 +1082,7 @@ export default function QuizPage() {
                   setShowFinalSubmitConfirm(false);
                   kirimJawaban(false);
                 }}
-                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                className="px-4 sm:px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm sm:text-base"
               >
                 Kirim
               </button>
@@ -916,15 +1093,15 @@ export default function QuizPage() {
 
       {/* Header */}
       <div className="bg-white shadow-lg border-b-4 border-purple-600">
-        <div className="max-w-6xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
             <div className="flex items-center space-x-3">
               <div className="bg-purple-100 p-2 rounded-lg">
-                <BookOpen className="w-6 h-6 text-purple-600" />
+                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-800">Gebyar Ilmiah Sains</h1>
-                <p className="text-sm text-gray-600">
+                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Gebyar Ilmiah Sains</h1>
+                <p className="text-xs sm:text-sm text-gray-600">
                   Science Competition - {user?.jenjang || ''} 
                   {user?.jenjang && examSchedules[user.jenjang] && 
                     ` (${examSchedules[user.jenjang].startTime} - ${examSchedules[user.jenjang].endTime})`
@@ -932,42 +1109,41 @@ export default function QuizPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-6 w-full sm:w-auto">
               {user && (
                 <div className="flex items-center space-x-2 bg-blue-100 px-3 py-1 rounded-full">
                   <User className="w-4 h-4 text-blue-600" />
-                  <span className="text-sm font-medium text-blue-700">{user.name}</span>
+                  <span className="text-xs sm:text-sm font-medium text-blue-700 truncate max-w-[120px] sm:max-w-none">{user.name}</span>
                 </div>
               )}
               <div className="flex items-center space-x-2 bg-purple-100 px-3 py-1 rounded-full">
-                <Clock className="w-5 h-5 text-purple-600" />
-                <span className="font-medium text-purple-700">{formatTime(timeLeft)}</span>
+                <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+                <span className="font-medium text-purple-700 text-sm sm:text-base">{formatTime(timeLeft)}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
         {/* Error Message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center space-x-2">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
-            <span className="text-red-700 text-sm">{error}</span>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 flex items-start sm:items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5 sm:mt-0" />
+            <span className="text-red-700 text-sm flex-1">{error}</span>
             <button 
               onClick={() => setError('')}
-              className="ml-auto text-red-500 hover:text-red-700"
+              className="text-red-500 hover:text-red-700 flex-shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Question Area */}
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">{/* Main Question Area */}
+          <div className="xl:col-span-2 order-2 xl:order-1">
             {/* Progress Bar */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 mb-4 sm:mb-6">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Progress</span>
                 <span className="text-sm font-medium text-purple-600">{terjawab}/{totalSoal}</span>
@@ -978,7 +1154,7 @@ export default function QuizPage() {
                   style={{ width: `${progress}%` }}
                 ></div>
               </div>
-              <div className="flex items-center justify-between mt-3 text-sm text-gray-600">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mt-3 text-sm text-gray-600 gap-1 sm:gap-0">
                 <span>
                   Ragu-ragu: {
                     jawaban.filter((j, idx) => j !== null && raguRagu[idx]).length
@@ -1009,14 +1185,14 @@ export default function QuizPage() {
             </div>
 
             {/* Question Card */}
-            <div className="bg-white rounded-2xl shadow-lg p-8 mb-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center space-x-3">
-                  <div className="bg-purple-100 text-purple-600 px-4 py-2 rounded-full font-bold">
+            <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3 sm:gap-0">
+                <div className="flex items-center space-x-3 flex-wrap">
+                  <div className="bg-purple-100 text-purple-600 px-3 sm:px-4 py-2 rounded-full font-bold text-sm sm:text-base">
                     Soal {currentSoal}
                   </div>
-                  <div className="text-gray-500">dari {totalSoal}</div>
-                  <div className="flex items-center text-gray-500 text-sm">
+                  <div className="text-gray-500 text-sm sm:text-base">dari {totalSoal}</div>
+                  <div className="flex items-center text-gray-500 text-xs sm:text-sm">
                     {currentQuestion.type === 'image' && (
                       <>
                         <Image className="w-4 h-4 mr-1" />
@@ -1031,24 +1207,32 @@ export default function QuizPage() {
                     )}
                   </div>
                 </div>
-                <div className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor()}`}>
+                <div className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${getStatusColor()}`}>
                   {getStatusText()}
                 </div>
               </div>
 
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 leading-relaxed">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4 leading-relaxed">
                 {currentQuestion.pertanyaan}
               </h2>
 
               {console.log("currentQuestion", currentQuestion)}
 
               {currentQuestion.type == 'image' && (
-                <div className="mb-6 rounded-lg overflow-hidden border border-gray-200">
+                <div className="mb-4 sm:mb-6 rounded-lg overflow-hidden border border-gray-200">
                   <img 
-                    src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img_url}`} 
+                    src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img}`} 
                     alt="Gambar soal" 
-                    className="w-full h-full object-cover" 
+                    className="w-full h-auto object-contain max-h-[300px] sm:max-h-[400px]" 
+                    onError={(e) => {
+                      console.error('Failed to load question image:', e.target.src);
+                      e.target.style.display = 'none';
+                      e.target.nextElementSibling.style.display = 'block';
+                    }}
                   />
+                  <div className="hidden text-red-500 text-sm italic p-4 text-center">
+                    Gambar tidak dapat dimuat
+                  </div>
                 </div>
               )}
 
@@ -1059,6 +1243,11 @@ export default function QuizPage() {
                   const isPending = isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1 && pendingAnswerIndex === idx;
                   const isDisabled = (isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1) || isRefetching;
                   
+                  // Check if answer is an image by looking at the original answer data
+                  const originalAnswer = currentQuestion.answers && currentQuestion.answers[idx];
+                  const isImageAnswer = originalAnswer && originalAnswer.answer_img && originalAnswer.type === 'image';
+                  const isTextAnswer = originalAnswer && originalAnswer.answer_text && originalAnswer.type === 'text';
+                  
                   return (
                     <label key={idx} className="block">
                       <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
@@ -1068,42 +1257,72 @@ export default function QuizPage() {
                           ? 'border-blue-400 bg-blue-50 shadow-sm'
                           : 'border-gray-200 hover:border-purple-300 bg-gray-50 hover:bg-gray-100'
                       } ${isDisabled ? 'opacity-70 cursor-wait' : ''}`}>
-                        <div className="flex items-center space-x-4">
+                        <div className={`flex items-${isImageAnswer ? 'start' : 'center'} space-x-4`}>
                           <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                             isSelected
                               ? 'border-purple-500 bg-purple-500'
                               : isPending
                               ? 'border-blue-400 bg-blue-400'
                               : 'border-gray-300'
-                          }`}>
+                          } ${isImageAnswer ? 'mt-1' : ''}`}>
                             {isPending ? (
                               <Loader2 className="w-3 h-3 text-white animate-spin" />
                             ) : isSelected ? (
                               <div className="w-2 h-2 bg-white rounded-full"></div>
                             ) : null}
                           </div>
-                          <div className="flex items-center space-x-3">
-                            <span className={`font-bold text-lg ${
-                              isSelected ? 'text-purple-600' : isPending ? 'text-blue-600' : 'text-gray-600'
-                            }`}>
-                              {String.fromCharCode(65 + idx)}.
-                            </span>
-                            <span className={`text-lg ${
-                              isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
-                            }`}>
-                              {opsi}
-                            </span>
+                          
+                          {/* Content container */}
+                          <div className={`flex-1 ${isImageAnswer ? '' : 'flex items-center space-x-3'}`}>
+                            {/* Label and Text Content */}
+                            <div className={`flex items-center space-x-3 ${isImageAnswer ? 'mb-2' : ''}`}>
+                              <span className={`font-bold text-lg ${
+                                isSelected ? 'text-purple-600' : isPending ? 'text-blue-600' : 'text-gray-600'
+                              }`}>
+                                {String.fromCharCode(65 + idx)}.
+                              </span>
+                              
+                              {/* Display text content (either from answer_text or fallback to opsi) */}
+                              {!isImageAnswer && (
+                                <span className={`text-lg ${
+                                  isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
+                                }`}>
+                                  {isTextAnswer ? originalAnswer.answer_text : opsi}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Image Content */}
+                            {isImageAnswer && (
+                              <div className="w-full max-w-md">
+                                <img 
+                                  src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${originalAnswer.answer_img}`}
+                                  alt={`Jawaban ${String.fromCharCode(65 + idx)}`}
+                                  className="w-full h-auto max-h-48 object-contain rounded-lg border border-gray-200"
+                                  onError={(e) => {
+                                    console.error('Failed to load answer image:', e.target.src);
+                                    e.target.style.display = 'none';
+                                    e.target.nextElementSibling.style.display = 'block';
+                                  }}
+                                />
+                                <div className="hidden text-red-500 text-sm italic">
+                                  Gambar tidak dapat dimuat: {originalAnswer.answer_img}
+                                </div>
+                              </div>
+                            )}
                           </div>
+                          
+                          {/* Status indicators */}
                           {isPending && (
-                            <div className="flex items-center text-blue-600 text-sm ml-auto">
+                            <div className="flex items-center text-blue-600 text-sm">
                               <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                              <span>Menyimpan ke server...</span>
+                              <span className="hidden sm:inline">Menyimpan ke server...</span>
                             </div>
                           )}
                           {isRefetching && isSelected && (
-                            <div className="flex items-center text-green-600 text-sm ml-auto">
+                            <div className="flex items-center text-green-600 text-sm">
                               <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                              <span>Sinkronisasi...</span>
+                              <span className="hidden sm:inline">Sinkronisasi...</span>
                             </div>
                           )}
                         </div>
@@ -1122,11 +1341,11 @@ export default function QuizPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-center space-x-4 pt-6 border-t border-gray-100">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center space-y-3 sm:space-y-0 sm:space-x-4 pt-4 sm:pt-6 border-t border-gray-100">
                 <button
                   onClick={toggleRaguRagu}
                   disabled={jawaban[currentSoal - 1] === null}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                  className={`flex items-center justify-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all text-sm sm:text-base ${
                     jawaban[currentSoal - 1] === null
                       ? 'bg-amber-100 text-amber-300 cursor-not-allowed'
                       : raguRagu[currentSoal - 1]
@@ -1135,60 +1354,66 @@ export default function QuizPage() {
                   }`}
                 >
                   <HelpCircle className="w-4 h-4" />
-                  <span>
+                  <span className="hidden sm:inline">
                     {raguRagu[currentSoal - 1] ? 'Hapus Ragu-ragu' : 'Tandai Ragu-ragu'}
+                  </span>
+                  <span className="sm:hidden">
+                    {raguRagu[currentSoal - 1] ? 'Hapus Ragu' : 'Ragu-ragu'}
                   </span>
                 </button>
 
                 {jawaban[currentSoal - 1] !== null && (
                   <button
                     onClick={batalkanJawaban}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-lg font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-all"
+                    className="flex items-center justify-center space-x-2 px-4 py-2 rounded-lg font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-all text-sm sm:text-base"
                   >
                     <X className="w-4 h-4" />
-                    <span>Batalkan Jawaban</span>
+                    <span className="hidden sm:inline">Batalkan Jawaban</span>
+                    <span className="sm:hidden">Batalkan</span>
                   </button>
                 )}
               </div>
             </div>
 
             {/* Navigation Buttons */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <button
                 onClick={prevSoal}
                 disabled={currentSoal === 1}
-                className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-medium transition-all ${
+                className={`flex items-center space-x-2 px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-medium transition-all text-sm sm:text-base ${
                   currentSoal === 1
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-white text-gray-700 hover:bg-gray-50 shadow-md hover:shadow-lg'
                 }`}
               >
-                <ChevronLeft className="w-5 h-5" />
-                <span>Sebelumnya</span>
+                <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline">Sebelumnya</span>
+                <span className="sm:hidden">Prev</span>
               </button>
 
               <button
                 onClick={nextSoal}
                 disabled={currentSoal === totalSoal}
-                className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-medium transition-all ${
+                className={`flex items-center space-x-2 px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-medium transition-all text-sm sm:text-base ${
                   currentSoal === totalSoal
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md hover:shadow-lg'
                 }`}
               >
-                <span>Selanjutnya</span>
-                <ChevronRight className="w-5 h-5" />
+                <span className="hidden sm:inline">Selanjutnya</span>
+                <span className="sm:hidden">Next</span>
+                <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
           </div>
 
           {/* Sidebar */}
-          <div className="lg:col-span-1">
-            {/* Question Grid - moved to top */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-              <h3 className="font-bold text-lg text-gray-800 mb-4">Daftar Soal</h3>
+          <div className="xl:col-span-1 order-1 xl:order-2">
+            {/* Question Grid */}
+            <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 mb-4 sm:mb-6">
+              <h3 className="font-bold text-base sm:text-lg text-gray-800 mb-3 sm:mb-4">Daftar Soal</h3>
               
-              <div className="grid grid-cols-5 gap-2 mb-4">
+              <div className="grid grid-cols-8 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-5 gap-1 sm:gap-2 mb-3 sm:mb-4">
                 {Array.from({ length: totalSoal }, (_, i) => {
                   const status = getStatusSoal(i);
                   return (
@@ -1196,7 +1421,7 @@ export default function QuizPage() {
                       key={i}
                       onClick={() => setCurrentSoal(i + 1)}
                       disabled={showSuccessModal}
-                      className={`w-10 h-10 rounded-lg font-bold text-sm transition-all duration-200 hover:scale-105 relative ${
+                      className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg font-bold text-xs sm:text-sm transition-all duration-200 hover:scale-105 relative ${
                         currentSoal === i + 1
                           ? 'bg-purple-600 text-white shadow-lg'
                           : status === 'ragu'
@@ -1208,7 +1433,7 @@ export default function QuizPage() {
                     >
                       {i + 1}
                       {status === 'ragu' && (
-                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full border-2 border-white"></div>
+                        <div className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 w-2 h-2 sm:w-3 sm:h-3 bg-orange-500 rounded-full border border-white sm:border-2"></div>
                       )}
                     </button>
                   );
@@ -1217,42 +1442,42 @@ export default function QuizPage() {
 
               {/* Legend */}
               <div className="space-y-2">
-                <div className="flex items-center space-x-3">
-                  <div className="w-4 h-4 bg-emerald-500 rounded"></div>
-                  <span className="text-sm text-gray-600">
+                <div className="flex items-center space-x-2 sm:space-x-3">
+                  <div className="w-3 h-3 sm:w-4 sm:h-4 bg-emerald-500 rounded"></div>
+                  <span className="text-xs sm:text-sm text-gray-600">
                     Sudah Dijawab ({terjawab - jawaban.filter((j, idx) => j !== null && raguRagu[idx]).length})
                   </span>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <div className="w-4 h-4 bg-amber-500 rounded relative">
-                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full"></div>
+                <div className="flex items-center space-x-2 sm:space-x-3">
+                  <div className="w-3 h-3 sm:w-4 sm:h-4 bg-amber-500 rounded relative">
+                    <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 sm:w-2 sm:h-2 bg-orange-500 rounded-full"></div>
                   </div>
-                  <span className="text-sm text-gray-600">
+                  <span className="text-xs sm:text-sm text-gray-600">
                     Ragu-ragu ({jawaban.filter((j, idx) => j !== null && raguRagu[idx]).length})
                   </span>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <div className="w-4 h-4 bg-gray-300 rounded"></div>
-                  <span className="text-sm text-gray-600">Belum Dijawab ({totalSoal - terjawab})</span>
+                <div className="flex items-center space-x-2 sm:space-x-3">
+                  <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gray-300 rounded"></div>
+                  <span className="text-xs sm:text-sm text-gray-600">Belum Dijawab ({totalSoal - terjawab})</span>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <div className="w-4 h-4 bg-purple-600 rounded"></div>
-                  <span className="text-sm text-gray-600">Soal Aktif</span>
+                <div className="flex items-center space-x-2 sm:space-x-3">
+                  <div className="w-3 h-3 sm:w-4 sm:h-4 bg-purple-600 rounded"></div>
+                  <span className="text-xs sm:text-sm text-gray-600">Soal Aktif</span>
                 </div>
               </div>
             </div>
 
-            {/* Submit Button - moved to bottom */}
-            <div className="bg-white rounded-2xl shadow-lg p-6">
+            {/* Submit Button */}
+            <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
               <button
                 onClick={handleSubmitAttempt}
                 disabled={isSubmitting || showSuccessModal}
-                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-4 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center space-x-2 disabled:opacity-70"
+                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg hover:from-purple-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center space-x-2 disabled:opacity-70"
               >
-                <Send className="w-5 h-5" />
+                <Send className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span>{isSubmitting ? 'Mengirim...' : 'Kirim Jawaban'}</span>
               </button>
-              <p className="text-center text-sm text-gray-500 mt-3">
+              <p className="text-center text-xs sm:text-sm text-gray-500 mt-2 sm:mt-3">
                 Pastikan semua jawaban sudah benar
               </p>
             </div>

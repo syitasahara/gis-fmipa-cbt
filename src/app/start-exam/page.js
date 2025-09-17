@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated, authAPI, questionsAPI } from '../utils/api';
+import { isAuthenticated, authAPI, questionsAPI, removeToken } from '../utils/api';
 import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
 import { BookOpen, Clock, Users, Play, ChevronRight, User, LogOut, CheckCircle } from 'lucide-react';
 
@@ -15,31 +15,54 @@ export default function StartExam() {
   const { startExam } = useStartExamProtection();
 
   useEffect(() => {
+    let isMounted = true;
+    
     const checkAuth = async () => {
-      if (!isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
-
-      // Cek jika ujian sudah berlangsung, redirect ke quiz
-      if (isExamInProgress()) {
-        router.push('/quiz');
-        return;
-      }
-
       try {
+        if (!isAuthenticated()) {
+          if (isMounted) {
+            router.push('/login');
+          }
+          return;
+        }
+
+        // Check if exam is in progress
+        if (isExamInProgress()) {
+          console.log('Exam already in progress, redirecting to quiz');
+          if (isMounted) {
+            router.push('/quiz');
+          }
+          return;
+        }
+
         const userData = await authAPI.getCurrentUser();
-        setUser(userData);
+        if (isMounted) {
+          setUser(userData);
+        }
       } catch (error) {
         console.error('Auth error:', error);
-        router.push('/login');
+        
+        // Clear invalid token
+        removeToken();
+        
+        if (isMounted) {
+          setTimeout(() => {
+            router.push('/login');
+          }, 1000);
+        }
         return;
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     checkAuth();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   // Load question count when user data is available
