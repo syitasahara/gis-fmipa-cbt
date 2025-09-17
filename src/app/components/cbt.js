@@ -14,7 +14,7 @@ import {
   generateUserSeed 
 } from '../utils/questionRandomizer';
 
-const examDuration = 60 * 60 * 1000; // 60 minutes in milliseconds
+const examDuration = 90 * 60 * 1000; // 60 minutes in milliseconds
 
 export default function QuizPage() {
   const router = useRouter();

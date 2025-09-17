@@ -200,7 +200,7 @@ export default function StartExam() {
               <Clock className="w-6 h-6 text-purple-600" />
             </div>
             <h3 className="text-lg font-bold text-gray-800 mb-2">Waktu Ujian</h3>
-            <p className="text-2xl font-bold text-purple-700">30 Menit</p>
+            <p className="text-2xl font-bold text-purple-700">90 Menit</p>
           </div>
 
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-md border border-purple-100 text-center">
