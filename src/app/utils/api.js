@@ -168,6 +168,11 @@ export const questionsAPI = {
       method: 'DELETE',
     });
   },
+
+  getQuestionCount: async (level = null) => {
+    const queryParam = level ? `?level=${level}` : '';
+    return await apiCall(`/exam/questions/count${queryParam}`);
+  },
 };
 
 // User Answers API functions

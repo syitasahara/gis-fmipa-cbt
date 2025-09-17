@@ -1,6 +1,20 @@
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import ApiTest from '../components/ApiTest';
+import { isExamInProgress } from '../utils/examProtection';
 
 export default function TestPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Jika ujian sedang berlangsung, redirect ke quiz
+    if (isExamInProgress()) {
+      router.push('/quiz');
+    }
+  }, [router]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="py-8">

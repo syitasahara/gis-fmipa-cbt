@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, Clock, AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import { getCurrentExamStatus, examSchedules } from '../utils/examSchedule';
+import { isExamInProgress } from '../utils/examProtection';
 
 export default function ExamSchedulePage() {
   const router = useRouter();
@@ -13,6 +14,12 @@ export default function ExamSchedulePage() {
 
   // Update current time and exam statuses every minute
   useEffect(() => {
+    // Jika ujian sedang berlangsung, redirect ke quiz
+    if (isExamInProgress()) {
+      router.push('/quiz');
+      return;
+    }
+    
     const updateStatus = () => {
       setCurrentTime(new Date().toTimeString().slice(0, 5));
       setExamStatuses(getCurrentExamStatus());
@@ -25,7 +32,7 @@ export default function ExamSchedulePage() {
     const interval = setInterval(updateStatus, 60000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [router]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);

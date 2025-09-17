@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { UserPlus, Mail, Lock, User, GraduationCap, BookOpen, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { authAPI } from '../utils/api';
+import { isExamInProgress } from '../utils/examProtection';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -20,6 +21,13 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    // Jika ujian sedang berlangsung, redirect ke quiz
+    if (isExamInProgress()) {
+      router.push('/quiz');
+    }
+  }, [router]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

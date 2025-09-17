@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, Clock, Calendar } from 'lucide-react';
 import { authAPI } from '../utils/api';
 import { checkExamSchedule, examSchedules, getCurrentExamStatus, getTimeUntilExamStarts } from '../utils/examSchedule';
-import { isExamInProgress } from '../utils/examProtection';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,12 +21,6 @@ export default function LoginPage() {
 
   // Update current time and exam statuses every minute
   useEffect(() => {
-    // Jika ujian sedang berlangsung, redirect ke quiz
-    if (isExamInProgress()) {
-      router.push('/quiz');
-      return;
-    }
-    
     const updateStatus = () => {
       setCurrentTime(new Date().toTimeString().slice(0, 5));
       const statuses = getCurrentExamStatus();
@@ -45,7 +38,7 @@ export default function LoginPage() {
     const interval = setInterval(updateStatus, 60000);
     
     return () => clearInterval(interval);
-  }, [router]);
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

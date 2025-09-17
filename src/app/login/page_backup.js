@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, Clock, Calendar } from 'lucide-react';
 import { authAPI } from '../utils/api';
 import { checkExamSchedule, examSchedules, getCurrentExamStatus, getTimeUntilExamStarts } from '../utils/examSchedule';
-import { isExamInProgress } from '../utils/examProtection';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,12 +21,6 @@ export default function LoginPage() {
 
   // Update current time and exam statuses every minute
   useEffect(() => {
-    // Jika ujian sedang berlangsung, redirect ke quiz
-    if (isExamInProgress()) {
-      router.push('/quiz');
-      return;
-    }
-    
     const updateStatus = () => {
       setCurrentTime(new Date().toTimeString().slice(0, 5));
       const statuses = getCurrentExamStatus();
@@ -45,7 +38,7 @@ export default function LoginPage() {
     const interval = setInterval(updateStatus, 60000);
     
     return () => clearInterval(interval);
-  }, [router]);
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -107,21 +100,25 @@ export default function LoginPage() {
       <div className="w-full max-w-7xl mx-auto">
         <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
           <div className="grid lg:grid-cols-2 gap-0">
-            
             {/* Left Column - Login Form */}
-            <div className="p-8 lg:p-12">
-              {/* Header */}
-              <div className="text-center mb-8">
-                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-2xl shadow-lg mx-auto w-fit mb-4 lg:hidden">
+            <div className="p-8 lg:p-12")
+              {/* Mobile Header */}
+              <div className="text-center mb-8 lg:hidden">
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-2xl shadow-lg mx-auto w-fit mb-4">
                   <LogIn className="w-10 h-10 text-white" />
                 </div>
-                <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent mb-2">
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent">
                   Login Peserta
                 </h1>
-                <p className="text-purple-600/80 lg:text-gray-600">
-                  <span className="lg:hidden">Gebyar Ilmiah Sains - CBT</span>
-                  <span className="hidden lg:inline">Masuk ke sistem ujian online</span>
-                </p>
+                <p className="text-purple-600/80 mt-2">Gebyar Ilmiah Sains - CBT</p>
+              </div>
+
+              {/* Desktop Header */}
+              <div className="hidden lg:block text-center mb-8">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent mb-2">
+                  Login Peserta
+                </h1>
+                <p className="text-gray-600">Masuk ke sistem ujian online</p>
               </div>
 
               {/* Error Message */}
@@ -245,23 +242,19 @@ export default function LoginPage() {
               </form>
             </div>
             
-            {/* Right Column - Exam Schedule Information */}
-            <div className="bg-gradient-to-br from-slate-50 to-gray-100 p-8 lg:p-12 border-l border-gray-200">
-              {/* Schedule Header */}
-              <div className="text-center mb-8">
-                <div className="flex items-center justify-center space-x-2 mb-4">
-                  <Clock className="w-7 h-7 text-indigo-600" />
-                  <h2 className="text-2xl font-bold text-gray-800">Jadwal Ujian</h2>
+            {/* Exam Schedule Information */}
+            <div className="mt-10 pt-8 border-t-2 border-gray-100">
+              <div className="text-center mb-6">
+                <div className="flex items-center justify-center space-x-2 mb-3">
+                  <Clock className="w-6 h-6 text-indigo-600" />
+                  <h3 className="text-xl font-bold text-gray-800">Jadwal Ujian</h3>
                 </div>
-                <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 inline-block shadow-sm">
-                  <p className="text-sm font-semibold text-gray-700">
-                    Waktu saat ini: <span className="text-indigo-600 text-lg">{currentTime}</span>
-                  </p>
+                <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-3 inline-block">
+                  <p className="text-sm font-semibold text-gray-700">Waktu saat ini: <span className="text-indigo-600">{currentTime}</span></p>
                 </div>
               </div>
 
-              {/* Schedule Cards */}
-              <div className="space-y-4 mb-8">
+              <div className="space-y-4">
                 {Object.entries(examSchedules).map(([jenjang, schedule]) => {
                   const status = examStatuses[jenjang] || { status: 'unknown' };
                   const isActive = status.status === 'active';
@@ -271,35 +264,34 @@ export default function LoginPage() {
                   return (
                     <div 
                       key={jenjang}
-                      className={`p-6 rounded-2xl border-2 transition-all duration-300 ${
+                      className={`p-5 rounded-2xl border-2 transition-all duration-200 ${
                         isActive 
-                          ? 'border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 shadow-lg transform scale-105' 
+                          ? 'border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 shadow-lg' 
                           : isNotStarted 
                           ? 'border-blue-300 bg-gradient-to-r from-blue-50 to-sky-50 shadow-md'
-                          : 'border-gray-300 bg-gradient-to-r from-gray-50 to-slate-50 shadow-sm opacity-75'
+                          : 'border-gray-200 bg-gradient-to-r from-gray-50 to-slate-50 shadow-sm'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
-                          <h3 className="font-bold text-xl text-gray-800 mb-2">{jenjang.toUpperCase()}</h3>
-                          <div className="flex items-center space-x-2 mb-3">
+                          <h4 className="font-bold text-lg text-gray-800 mb-1">{jenjang.toUpperCase()}</h4>
+                          <div className="flex items-center space-x-2">
                             <Calendar className="w-4 h-4 text-gray-500" />
                             <p className="text-sm font-medium text-gray-700">
                               {schedule.startTime} - {schedule.endTime}
                             </p>
                           </div>
                           {isNotStarted && (
-                            <p className="text-sm text-blue-600 font-medium flex items-center space-x-1">
-                              <Clock className="w-4 h-4" />
-                              <span>Dimulai dalam {getTimeUntilExamStarts(jenjang)} menit</span>
+                            <p className="text-sm text-blue-600 mt-2 font-medium">
+                              ⏰ Dimulai dalam {getTimeUntilExamStarts(jenjang)} menit
                             </p>
                           )}
                         </div>
-                        <div className={`px-4 py-2 rounded-full text-sm font-bold shadow-md ${
+                        <div className={`px-4 py-2 rounded-full text-sm font-bold ${
                           isActive 
-                            ? 'bg-green-200 text-green-800 animate-pulse' 
+                            ? 'bg-green-200 text-green-800 shadow-md' 
                             : isNotStarted 
-                            ? 'bg-blue-200 text-blue-800'
+                            ? 'bg-blue-200 text-blue-800 shadow-md'
                             : 'bg-gray-200 text-gray-700'
                         }`}>
                           {isActive && '🟢 Sedang Berlangsung'}
@@ -312,22 +304,20 @@ export default function LoginPage() {
                 })}
               </div>
 
-              {/* Important Notice */}
-              <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl shadow-sm">
+              <div className="mt-6 p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl">
                 <div className="flex items-start space-x-3">
-                  <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
-                    <h4 className="font-bold text-amber-800 mb-2">Perhatian Penting</h4>
-                    <p className="text-sm text-amber-800 mb-4 leading-relaxed">
-                      Anda hanya dapat login dan mengakses ujian sesuai dengan jadwal jenjang Anda. 
-                      Login di luar jadwal akan ditolak sistem secara otomatis.
+                    <p className="text-sm text-amber-800 mb-3 font-medium leading-relaxed">
+                      <strong>Penting:</strong> Anda hanya dapat login dan mengakses ujian sesuai dengan jadwal jenjang Anda. 
+                      Login di luar jadwal akan ditolak sistem.
                     </p>
                     <button
                       onClick={() => router.push('/schedule')}
-                      className="inline-flex items-center px-4 py-2 bg-amber-200 text-amber-900 rounded-lg hover:bg-amber-300 font-semibold text-sm transition-all duration-200 group shadow-sm"
+                      className="inline-flex items-center text-sm text-amber-900 hover:text-amber-800 font-semibold transition-colors duration-200 group"
                     >
-                      Lihat Detail Jadwal
-                      <span className="ml-2 group-hover:ml-3 transition-all duration-200">→</span>
+                      Lihat informasi lengkap jadwal ujian
+                      <span className="ml-1 group-hover:ml-2 transition-all duration-200">→</span>
                     </button>
                   </div>
                 </div>

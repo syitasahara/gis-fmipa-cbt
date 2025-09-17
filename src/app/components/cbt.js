@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId } from '../utils/api';
 import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
 import { checkExamSchedule, examSchedules } from '../utils/examSchedule';
+import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
 
 const examDuration = 60 * 60 * 1000; // 60 minutes in milliseconds
 
 export default function QuizPage() {
   const router = useRouter();
+  const { endExam } = useStartExamProtection();
   
   // Authentication & User state
   const [user, setUser] = useState(null);
@@ -65,6 +67,39 @@ export default function QuizPage() {
     checkAuth();
   }, [router]);
 
+  // Pencegahan navigasi browser dan tab close
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isExamInProgress()) {
+        e.preventDefault();
+        e.returnValue = 'Ujian sedang berlangsung. Yakin ingin meninggalkan halaman?';
+        return e.returnValue;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isExamInProgress()) {
+        // User meninggalkan tab
+        const currentViolations = parseInt(getCookie('violations') || '0');
+        const newViolations = currentViolations + 1;
+        setCookie('violations', newViolations.toString());
+        setViolations(newViolations);
+        
+        if (newViolations >= 3) {
+          setShowCheatingWarning(true);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Check exam schedule
   const checkSchedule = (jenjang) => checkExamSchedule(jenjang);
 
@@ -90,7 +125,7 @@ export default function QuizPage() {
           id: q.id,
           pertanyaan: q.question_text || '',
           type: q.type,
-          question_img_url: q.question_img_url || null,
+          question_img_url: q.question_img || null,
           answers: q.answers || [],
           opsi: q.answers?.map(a => a.answer_text || a.answer_img || '') || []
         }));
@@ -510,6 +545,9 @@ export default function QuizPage() {
       
       setSubmissionResult(result);
       
+      // Akhiri proteksi ujian
+      endExam();
+      
       // Show success modal after processing and clear local storage
       setTimeout(() => {
         setIsSubmitting(false);
@@ -559,6 +597,9 @@ export default function QuizPage() {
       setSubmissionResult(result);
       setError('Gagal menghitung hasil dari server, menampilkan hasil lokal.');
       
+      // Akhiri proteksi ujian meskipun error
+      endExam();
+      
       setTimeout(() => {
         setIsSubmitting(false);
         if (isAutoSubmit) setShowTimeUpModal(false);
@@ -584,6 +625,9 @@ export default function QuizPage() {
 
   const handleBackToHome = () => {
     setShowSuccessModal(false);
+    
+    // Akhiri proteksi ujian
+    endExam();
     
     // Clear all auth data before going to home
     localStorage.clear();
@@ -999,23 +1043,19 @@ export default function QuizPage() {
 
               {console.log("currentQuestion", currentQuestion)}
 
-              {currentQuestion.type == 'image' && currentQuestion.question_img_url && (
+              {currentQuestion.type == 'image' && (
                 <div className="mb-6 rounded-lg overflow-hidden border border-gray-200">
                   <img 
-                    src={currentQuestion.question_img_url} 
+                    src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img_url}`} 
                     alt="Gambar soal" 
-                    className="w-full h-auto object-contain max-h-96" 
-                    onError={(e) => {
-                      console.error('Error loading question image:', currentQuestion.question_img_url);
-                      e.target.style.display = 'none';
-                    }}
+                    className="w-full h-full object-cover" 
                   />
                 </div>
               )}
 
 
               <div className="space-y-3 mb-8">
-                {currentQuestion.answers.map((answer, idx) => {
+                {currentQuestion.opsi.map((opsi, idx) => {
                   const isSelected = jawaban[currentSoal - 1] === idx;
                   const isPending = isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1 && pendingAnswerIndex === idx;
                   const isDisabled = (isSubmittingAnswer && submittingQuestionIndex === currentSoal - 1) || isRefetching;
@@ -1049,34 +1089,11 @@ export default function QuizPage() {
                             }`}>
                               {String.fromCharCode(65 + idx)}.
                             </span>
-                            {answer.type === 'image' && answer.answer_img_url ? (
-                              <img 
-                                src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${answer.answer_img}`} 
-                                alt={`Jawaban ${String.fromCharCode(65 + idx)}`}
-                                className="max-w-xs max-h-32 object-contain rounded-lg border border-gray-200"
-                                onError={(e) => {
-                                  console.error('Error loading answer image:', answer.answer_img_url);
-                                  e.target.style.display = 'none';
-                                  e.target.nextSibling.style.display = 'inline';
-                                }}
-                              />
-                            ) : (
-                              <span className={`text-lg ${
-                                isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
-                              }`}>
-                                {answer.answer_text || currentQuestion.opsi[idx]}
-                              </span>
-                            )}
-                            {answer.type === 'image' && answer.answer_img_url && (
-                              <span 
-                                className={`text-lg ${
-                                  isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
-                                }`}
-                                style={{ display: 'none' }}
-                              >
-                                {answer.answer_text || `Gambar ${String.fromCharCode(65 + idx)}`}
-                              </span>
-                            )}
+                            <span className={`text-lg ${
+                              isSelected ? 'text-gray-800 font-medium' : isPending ? 'text-blue-800 font-medium' : 'text-gray-700'
+                            }`}>
+                              {opsi}
+                            </span>
                           </div>
                           {isPending && (
                             <div className="flex items-center text-blue-600 text-sm ml-auto">

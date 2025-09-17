@@ -4,13 +4,20 @@ import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { BookOpen, Clock, Award, Users, ChevronRight, Play, Target, CheckCircle } from 'lucide-react';
 import { isAuthenticated } from './utils/api';
+import { isExamInProgress } from './utils/examProtection';
 
 const Page = () => {
   const router = useRouter();
 
   useEffect(() => {
-    if (isAuthenticated()) {
+    // Jika ujian sedang berlangsung, redirect ke quiz
+    if (isExamInProgress()) {
       router.push('/quiz');
+      return;
+    }
+    
+    if (isAuthenticated()) {
+      router.push('/start-exam');
     }
   }, [router]);
 
