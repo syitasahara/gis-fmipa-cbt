@@ -147,7 +147,7 @@ export default function QuizPage() {
     };
 
     loadQuestions();
-  }, [user, loadUserAnswers]);
+  }, [user]);
 
   // Load existing user answers
   const loadUserAnswers = useCallback(async (questionsData) => {
@@ -242,22 +242,6 @@ export default function QuizPage() {
     }
   };
 
-  // Handle timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1000) {
-          clearInterval(timer);
-          handleTimeUp();
-          return 0;
-        }
-        return prev - 1000;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [handleTimeUp]);
-
   // Initialize violations from cookies
   useEffect(() => {
     const savedViolations = getCookie('violations');
@@ -311,6 +295,21 @@ export default function QuizPage() {
       kirimJawaban(true);
     }, 3000);
   }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1000) {
+          clearInterval(timer);
+          handleTimeUp();
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [handleTimeUp]);
 
   const formatTime = (ms) => {
     const hours = Math.floor(ms / 3600000);
