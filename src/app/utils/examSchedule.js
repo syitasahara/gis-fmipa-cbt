@@ -50,6 +50,44 @@ export const checkExamSchedule = (jenjang) => {
   };
 };
 
+// Check if exam is currently active (for /start-exam page access)
+export const checkExamActive = (jenjang) => {
+  const schedule = examSchedules[jenjang];
+  if (!schedule) {
+    return { 
+      allowed: false, 
+      message: 'Jenjang tidak valid.',
+      status: 'invalid'
+    };
+  }
+
+  const now = new Date();
+  const currentTime = now.toTimeString().slice(0, 5); // Format: HH:MM
+  
+  if (currentTime < schedule.startTime) {
+    return {
+      allowed: false,
+      message: `Ujian untuk jenjang ${jenjang} belum dimulai. Waktu ujian: ${schedule.startTime} - ${schedule.endTime}. Silakan tunggu hingga pukul ${schedule.startTime}.`,
+      status: 'not_started',
+      nextTime: schedule.startTime
+    };
+  }
+  
+  if (currentTime > schedule.endTime) {
+    return {
+      allowed: false,
+      message: `Ujian untuk jenjang ${jenjang} telah berakhir pada pukul ${schedule.endTime}. Silakan hubungi panitia jika ada kendala.`,
+      status: 'ended'
+    };
+  }
+  
+  return { 
+    allowed: true, 
+    message: `Ujian untuk jenjang ${jenjang} sedang berlangsung (${schedule.startTime} - ${schedule.endTime}).`,
+    status: 'active'
+  };
+};
+
 // Get current exam status for all jenjang
 export const getCurrentExamStatus = () => {
   const statuses = {};

@@ -83,20 +83,7 @@ export default function LoginPage() {
     try {
       const response = await authAPI.login(formData.email, formData.password);
       
-      // Check if user's jenjang has active exam schedule
-      if (response.user && response.user.jenjang) {
-        const scheduleCheck = checkExamSchedule(response.user.jenjang);
-        
-        if (!scheduleCheck.allowed) {
-          // If exam is not allowed at this time, clear token and show error
-          // Don't call logout API, just clear local storage
-          removeToken();
-          setError(scheduleCheck.message);
-          return;
-        }
-      }
-      
-      // Login successful and schedule is valid, redirect to start-exam page
+      // Login successful, redirect to start-exam page
       console.log('Login successful, redirecting to start-exam');
       // Small delay to ensure token is properly set
       setTimeout(() => {
@@ -233,18 +220,13 @@ export default function LoginPage() {
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  disabled={isLoading || !hasActiveExam}
+                  disabled={isLoading}
                   className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-4 rounded-xl font-semibold text-lg hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center space-x-2"
                 >
                   {isLoading ? (
                     <>
                       <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       <span>Memproses...</span>
-                    </>
-                  ) : !hasActiveExam ? (
-                    <>
-                      <AlertCircle className="w-5 h-5" />
-                      <span>Tidak Ada Ujian Aktif</span>
                     </>
                   ) : (
                     <>
@@ -253,15 +235,6 @@ export default function LoginPage() {
                     </>
                   )}
                 </button>
-
-                {!hasActiveExam && (
-                  <div className="mt-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
-                    <p className="text-sm text-blue-700 text-center font-medium">
-                      Login hanya dapat dilakukan saat ada ujian yang sedang berlangsung. 
-                      Silakan tunggu hingga waktu ujian dimulai.
-                    </p>
-                  </div>
-                )}
               </form>
             </div>
             
@@ -339,8 +312,8 @@ export default function LoginPage() {
                   <div className="flex-1">
                     <h4 className="font-bold text-amber-800 mb-2">Perhatian Penting</h4>
                     <p className="text-sm text-amber-800 mb-4 leading-relaxed">
-                      Anda hanya dapat login dan mengakses ujian sesuai dengan jadwal jenjang Anda. 
-                      Login di luar jadwal akan ditolak sistem secara otomatis.
+                      Anda dapat login kapan saja, tetapi ujian hanya dapat dimulai sesuai dengan jadwal jenjang Anda. 
+                      Pastikan untuk memulai ujian tepat waktu sesuai jadwal yang telah ditentukan.
                     </p>
                     <button
                       onClick={() => router.push('/schedule')}

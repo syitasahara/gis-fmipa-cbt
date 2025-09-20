@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, authAPI, questionsAPI, removeToken } from '../utils/api';
 import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
+import { checkExamActive } from '../utils/examSchedule';
 import { BookOpen, Clock, Users, Play, ChevronRight, User, LogOut, CheckCircle } from 'lucide-react';
 
 export default function StartExam() {
@@ -12,6 +13,8 @@ export default function StartExam() {
   const [isLoading, setIsLoading] = useState(true);
   const [questionCount, setQuestionCount] = useState(0);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+  const [examStatus, setExamStatus] = useState(null);
+  const [examError, setExamError] = useState('');
   const { startExam } = useStartExamProtection();
 
   useEffect(() => {
@@ -96,7 +99,44 @@ export default function StartExam() {
     loadQuestionCount();
   }, [user]);
 
+  // Check exam schedule when user data is available
+  useEffect(() => {
+    if (!user || !user.jenjang) return;
+
+    const checkSchedule = () => {
+      const scheduleCheck = checkExamActive(user.jenjang);
+      setExamStatus(scheduleCheck);
+      
+      if (!scheduleCheck.allowed) {
+        setExamError(scheduleCheck.message);
+      } else {
+        setExamError('');
+      }
+    };
+
+    checkSchedule();
+
+    // Auto-refresh schedule check every 30 seconds if exam hasn't started
+    let interval;
+    if (!examStatus?.allowed && examStatus?.status === 'not_started') {
+      interval = setInterval(checkSchedule, 30000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [user, examStatus?.allowed, examStatus?.status]);
+
   const handleStartExam = () => {
+    // Check schedule one more time before starting
+    if (user && user.jenjang) {
+      const scheduleCheck = checkExamActive(user.jenjang);
+      if (!scheduleCheck.allowed) {
+        setExamError(scheduleCheck.message);
+        return;
+      }
+    }
+    
     // Aktifkan proteksi ujian
     startExam();
     // Redirect ke halaman quiz
@@ -238,15 +278,50 @@ export default function StartExam() {
           </ul>
         </div>
 
+        {/* Exam Schedule Error/Warning */}
+        {examError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-6 mb-8">
+            <div className="flex items-start space-x-3">
+              <div className="bg-red-100 p-2 rounded-full flex-shrink-0">
+                <Clock className="w-5 h-5 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-lg font-bold text-red-800 mb-2">
+                  {examStatus?.status === 'not_started' ? 'Ujian Belum Dimulai' : 
+                   examStatus?.status === 'ended' ? 'Ujian Telah Berakhir' : 
+                   'Tidak Dapat Mengakses Ujian'}
+                </h4>
+                <p className="text-red-700">{examError}</p>
+                {examStatus?.status === 'not_started' && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-blue-700 text-sm">
+                      Halaman ini akan secara otomatis refresh setiap 30 detik untuk memeriksa waktu ujian.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Start Button */}
         <div className="text-center">
           <button
             onClick={handleStartExam}
-            className="group bg-gradient-to-r from-violet-700 to-purple-700 hover:from-violet-800 hover:to-purple-800 text-white px-12 py-4 rounded-xl font-bold text-xl shadow-lg hover:shadow-purple-200/50 transform hover:scale-[1.02] transition-all duration-300 flex items-center space-x-3 mx-auto"
+            disabled={examError || !examStatus?.allowed}
+            className={`group px-12 py-4 rounded-xl font-bold text-xl shadow-lg transform transition-all duration-300 flex items-center space-x-3 mx-auto ${
+              examError || !examStatus?.allowed
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-gradient-to-r from-violet-700 to-purple-700 hover:from-violet-800 hover:to-purple-800 text-white hover:shadow-purple-200/50 hover:scale-[1.02]'
+            }`}
           >
             <Play className="w-6 h-6" />
-            <span>Mulai Ujian Sekarang</span>
-            <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+            <span>
+              {examError || !examStatus?.allowed ? 'Ujian Tidak Tersedia' : 'Mulai Ujian Sekarang'}
+            </span>
+            {(!examError && examStatus?.allowed) && (
+              <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+            )}
           </button>
           
           <p className="text-sm text-gray-600 mt-4">

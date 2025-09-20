@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, 
 import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId, removeToken } from '../utils/api';
 import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
-import { checkExamSchedule, examSchedules, getRemainingExamDuration } from '../utils/examSchedule';
+import { checkExamSchedule, examSchedules, getRemainingExamDuration, checkExamActive } from '../utils/examSchedule';
 import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
 import { 
   randomizeQuestionsAndAnswers, 
@@ -161,7 +161,7 @@ export default function QuizPage() {
   }, []);
 
   // Check exam schedule
-  const checkSchedule = (jenjang) => checkExamSchedule(jenjang);
+  const checkSchedule = (jenjang) => checkExamActive(jenjang);
 
   // Seeded random function for consistent randomization
   const seededRandom = (seed) => {
