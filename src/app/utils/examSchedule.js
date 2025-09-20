@@ -3,7 +3,7 @@
 // Exam schedules by jenjang
 export const examSchedules = {
   'sd': {
-    startTime: '08:00',
+    startTime: '07:00',
     endTime: '09:30'
   },
   'smp': {

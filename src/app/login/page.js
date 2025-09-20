@@ -93,7 +93,9 @@ export default function LoginPage() {
       // Handle different types of errors
       let errorMessage = 'Login gagal. Periksa email dan password Anda.';
       
-      if (err.message.includes('Koneksi ke server gagal')) {
+      if (err.message.includes('Login failed')) {
+        errorMessage = 'Akun Anda tidak aktif. Silakan hubungi administrator untuk mengaktifkan akun Anda.';
+      } else if (err.message.includes('Koneksi ke server gagal')) {
         errorMessage = 'Salah username atau password. Lalu, periksa koneksi internet Anda.';
       } else if (err.message.includes('Masalah akses server')) {
         errorMessage = 'Terjadi masalah teknis. Tim kami sedang memperbaikinya.';
@@ -136,17 +138,23 @@ export default function LoginPage() {
                 <div className={`border-2 rounded-xl p-4 mb-6 flex items-start space-x-3 ${
                   error.includes('dimulai') || error.includes('berakhir') 
                     ? 'bg-amber-50 border-amber-300' 
+                    : error.includes('tidak aktif') || error.includes('belum diverifikasi')
+                    ? 'bg-orange-50 border-orange-300'
                     : 'bg-red-50 border-red-300'
                 }`}>
                   <AlertCircle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
                     error.includes('dimulai') || error.includes('berakhir') 
                       ? 'text-amber-500' 
+                      : error.includes('tidak aktif') || error.includes('belum diverifikasi')
+                      ? 'text-orange-500'
                       : 'text-red-500'
                   }`} />
                   <div className="flex-1">
                     <span className={`text-sm font-medium ${
                       error.includes('dimulai') || error.includes('berakhir') 
                         ? 'text-amber-700' 
+                        : error.includes('tidak aktif') || error.includes('belum diverifikasi')
+                        ? 'text-orange-700'
                         : 'text-red-700'
                     }`}>
                       {error}
@@ -159,6 +167,13 @@ export default function LoginPage() {
                         >
                           Lihat detail jadwal ujian →
                         </button>
+                      </div>
+                    )}
+                    {(error.includes('tidak aktif') || error.includes('belum diverifikasi')) && (
+                      <div className="mt-2">
+                        <p className="text-xs text-orange-800 font-medium">
+                          💡 Hubungi administrator untuk mengaktifkan akun Anda
+                        </p>
                       </div>
                     )}
                   </div>
