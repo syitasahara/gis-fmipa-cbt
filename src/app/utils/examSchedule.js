@@ -3,12 +3,12 @@
 // Exam schedules by jenjang
 export const examSchedules = {
   'sd': {
-    startTime: '11:00',
-    endTime: '23:59'
+    startTime: '07:00',
+    endTime: '09:30'
   },
   'smp': {
-    startTime: '11:00', 
-    endTime: '23:59'
+    startTime: '13:00',
+    endTime: '14:30'
   }
 };
 
@@ -76,4 +76,41 @@ export const getTimeUntilExamStarts = (jenjang) => {
   const startTotalMinutes = startHour * 60 + startMinute;
   
   return startTotalMinutes - currentTotalMinutes;
+};
+
+// Get remaining exam duration from current time until exam ends (in milliseconds)
+export const getRemainingExamDuration = (jenjang) => {
+  const schedule = examSchedules[jenjang];
+  if (!schedule) return 90 * 60 * 1000; // Default 90 minutes
+
+  const now = new Date();
+  const currentTime = now.toTimeString().slice(0, 5);
+  
+  // If exam hasn't started yet, return full duration
+  if (currentTime < schedule.startTime) {
+    const [startHour, startMinute] = schedule.startTime.split(':').map(Number);
+    const [endHour, endMinute] = schedule.endTime.split(':').map(Number);
+    
+    const startTotalMinutes = startHour * 60 + startMinute;
+    const endTotalMinutes = endHour * 60 + endMinute;
+    
+    return (endTotalMinutes - startTotalMinutes) * 60 * 1000; // Convert to milliseconds
+  }
+  
+  // If exam has ended, return 0
+  if (currentTime > schedule.endTime) {
+    return 0;
+  }
+  
+  // Calculate remaining time from now until exam ends
+  const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+  const [endHour, endMinute] = schedule.endTime.split(':').map(Number);
+  
+  const currentTotalMinutes = currentHour * 60 + currentMinute;
+  const endTotalMinutes = endHour * 60 + endMinute;
+  
+  const remainingMinutes = endTotalMinutes - currentTotalMinutes;
+  
+  // Ensure we don't return negative values
+  return Math.max(0, remainingMinutes * 60 * 1000); // Convert to milliseconds
 };

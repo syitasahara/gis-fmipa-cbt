@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, 
 import { useRouter } from 'next/navigation';
 import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId, removeToken } from '../utils/api';
 import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
-import { checkExamSchedule, examSchedules } from '../utils/examSchedule';
+import { checkExamSchedule, examSchedules, getRemainingExamDuration } from '../utils/examSchedule';
 import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
 import { 
   randomizeQuestionsAndAnswers, 
@@ -13,8 +13,6 @@ import {
   filterQuestionsByLevel,
   generateUserSeed 
 } from '../utils/questionRandomizer';
-
-const examDuration = 90 * 60 * 1000; // 60 minutes in milliseconds
 
 export default function QuizPage() {
   const router = useRouter();
@@ -37,7 +35,7 @@ export default function QuizPage() {
   const [userAnswerIds, setUserAnswerIds] = useState([]); // Track backend answer IDs
   
   // Timer & UI state
-  const [timeLeft, setTimeLeft] = useState(examDuration);
+  const [timeLeft, setTimeLeft] = useState(90 * 60 * 1000); // Default 90 minutes, will be updated based on schedule
   const [tabChanges, setTabChanges] = useState(0);
   const [violations, setViolations] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
@@ -119,6 +117,15 @@ export default function QuizPage() {
       isMounted = false; // Cleanup function
     };
   }, [router, isRedirecting]);
+
+  // Set exam duration based on user's jenjang and current time
+  useEffect(() => {
+    if (user && user.jenjang) {
+      const remainingDuration = getRemainingExamDuration(user.jenjang);
+      console.log(`Setting exam duration for ${user.jenjang}: ${remainingDuration}ms (${remainingDuration / 60000} minutes)`);
+      setTimeLeft(remainingDuration);
+    }
+  }, [user]);
 
   // Pencegahan navigasi browser dan tab close
   useEffect(() => {
@@ -658,8 +665,9 @@ export default function QuizPage() {
       
       console.log('Submitting exam for userId:', userId, typeof userId);
 
-      // Calculate duration
-      const usedDuration = examDuration - timeLeft;
+      // Calculate duration based on exam schedule
+      const totalExamDuration = getRemainingExamDuration(user.jenjang);
+      const usedDuration = totalExamDuration - timeLeft;
       const durationInMinutes = Math.floor(usedDuration / 60000); // Convert to minutes
       
       // Get violations count from cookie
