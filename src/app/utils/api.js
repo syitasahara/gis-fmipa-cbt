@@ -33,8 +33,9 @@ const removeToken = () => {
   if (typeof window !== 'undefined') {
     console.log('🗑️ TOKEN REMOVE: Removing token...');
     localStorage.removeItem('authToken');
-    // Also remove the stored user id
+    // Also remove the stored user id and peserta id
     localStorage.removeItem('authUserId');
+    localStorage.removeItem('authPesertaId');
     // Also remove from cookies
     document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
     console.log('🗑️ TOKEN REMOVE: Token removed');
@@ -61,6 +62,26 @@ const getUserId = () => {
   return null;
 };
 
+// Peserta id helpers — response login membawa pesertaId (lihat swagger
+// auth.ResponseLoginUser), dipakai untuk fetch /master/peserta/{id}
+const setPesertaId = (id) => {
+  if (typeof window !== 'undefined') {
+    if (id === null || id === undefined) {
+      localStorage.removeItem('authPesertaId');
+    } else {
+      localStorage.setItem('authPesertaId', String(id));
+      console.log('💾 PESERTA ID SET: Stored pesertaId:', id);
+    }
+  }
+};
+
+const getPesertaId = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('authPesertaId');
+  }
+  return null;
+};
+
 // Generic API call function (direct ke GIS API)
 const apiCall = async (endpoint, options = {}) => {
   const token = getToken();
@@ -79,7 +100,9 @@ const apiCall = async (endpoint, options = {}) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
+      const err = new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
+      err.status = response.status; // supaya pemanggil bisa bedakan 404/401/dll
+      throw err;
     }
 
     return response.json();
@@ -109,25 +132,40 @@ export const authAPI = {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json();
       console.log('🔐 AUTH API: Login response:', data);
 
       if (!response.ok) {
         throw new Error(data.message || data.error || 'Login failed');
       }
 
+      console.log("token", data)
       // Normalisasi bentuk response GIS API (top-level atau nested di `data` / `authorization`)
-      const token = data.token || data.access_token || data.authorizationToken
+      const token = data?.data?.token?.AccessToken || data.access_token || data.authorizationToken
         || data.data?.token || data.data?.access_token || data.authorization?.token || null;
 
       const user = data.user || data.data?.user || data.userData || null;
 
       // BE tidak punya endpoint byAuth — id disimpan saat login
       // dan dipakai untuk fetch user via /auth/user/{id}
-      const userId = user?.id ?? user?.userId ?? user?.user_id
+      let userId = user?.id ?? user?.userId ?? user?.user_id
         ?? data.userId ?? data.user_id
         ?? data.data?.userId ?? data.data?.user_id
         ?? null;
+
+      // Fallback: response Cognito/JWT sering tidak membawa id terpisah —
+      // ambil dari payload token (sub/username)
+      if (!userId && token) {
+        try {
+          const payload = decodeJWTPayload(token);
+          userId = payload?.sub || payload?.username || payload?.user_id || payload?.id || null;
+          if (userId) {
+            console.log('🔐 AUTH API: userId extracted from token payload:', userId);
+          }
+        } catch (decodeError) {
+          console.warn('🔐 AUTH API: Could not extract userId from token:', decodeError.message);
+        }
+      }
 
       // Store token if present
       if (token) {
@@ -146,7 +184,17 @@ export const authAPI = {
         console.warn('🔐 AUTH API: No user id in response!', data);
       }
 
-      return { token, user, userId, message: data.message || 'Login successful' };
+      // Simpan pesertaId dari response login (dipakai fetch /master/peserta/{id})
+      const pesertaId = user?.pesertaId ?? user?.peserta_id
+        ?? data.pesertaId ?? data.data?.user?.pesertaId ?? data.data?.pesertaId
+        ?? null;
+      if (pesertaId) {
+        setPesertaId(pesertaId);
+      } else {
+        console.warn('🔐 AUTH API: No pesertaId in response!', data);
+      }
+
+      return { token, user, userId, pesertaId, message: data.message || 'Login successful' };
     } catch (error) {
       console.error('🔐 AUTH API: Login failed:', error);
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
@@ -180,15 +228,15 @@ export const authAPI = {
         throw new Error('No authentication token found');
       }
 
-      // BE tidak punya endpoint byAuth — pakai /auth/user/{id} dengan id yang
-      // disimpan saat login
-      const userId = getUserId();
+      // BE tidak punya endpoint byAuth — pakai /auth/user/{id}. Id utama dari
+      // localStorage (disimpan saat login); fallback decode dari token JWT
+      const userId = getUserId() || getCurrentUserId();
       if (!userId) {
         throw new Error('No user id found. Please login again.');
       }
 
       // Direct call ke GIS API
-      const response = await fetch(`${API_BASE_URL}/auth/user/${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/auth/user/${encodeURIComponent(userId)}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -209,6 +257,69 @@ export const authAPI = {
     } catch (error) {
       console.error('👤 AUTH API: Get current user failed:', error);
       throw error;
+    }
+  },
+
+  // GET /v1/master/peserta/{id} pakai Bearer token.
+  // Response BE dibungkus: { data: { nama, jenjang (int), sekolah, kelas, ... } }
+  getPeserta: async (pesertaIdOverride = null) => {
+    console.log('🧑‍🎓 AUTH API: Getting peserta data...');
+
+    const token = getToken();
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const pesertaId = pesertaIdOverride || getPesertaId();
+    if (!pesertaId) {
+      throw new Error('No peserta id found. Please login again.');
+    }
+
+    // Direct call ke GIS API
+    const response = await fetch(`${API_BASE_URL}/master/peserta/${encodeURIComponent(pesertaId)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+    console.log('🧑‍🎓 AUTH API: Peserta response:', data);
+
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Failed to get peserta data');
+    }
+
+    // Normalisasi: peserta object bisa langsung atau dibungkus `data`
+    return data.data || data;
+  },
+
+  // User + data peserta sekaligus. Jenjang yang valid untuk fetch soal ada di
+  // record peserta (integer) — bukan di user. Kalau fetch peserta gagal,
+  // tetap kembalikan data user dasar.
+  getCurrentUserWithPeserta: async () => {
+    const user = await authAPI.getCurrentUser();
+    console.log('👤 AUTH API: Base user:', user);
+
+    try {
+      const peserta = await authAPI.getPeserta(user?.pesertaId);
+      const merged = { ...user, peserta };
+
+      if (peserta?.nama) merged.nama = peserta.nama;
+      if (peserta?.sekolah) merged.sekolah = peserta.sekolah;
+      if (peserta?.kelas) merged.kelas = peserta.kelas;
+      if (peserta?.jenjang !== undefined && peserta?.jenjang !== null) {
+        const label = questionsAPI.jenjangIdToLabel(peserta.jenjang);
+        if (label) merged.jenjang = label;
+      }
+
+      console.log('👤 AUTH API: User merged with peserta:', merged);
+      return merged;
+    } catch (error) {
+      console.warn('👤 AUTH API: Peserta data unavailable, using base user:', error.message);
+      return user;
     }
   },
 
@@ -234,6 +345,62 @@ export const authAPI = {
 
 // Questions API functions
 export const questionsAPI = {
+  // Mapping jenjang ('sd'/'smp'/'1'/'2') → ID integer di BE.
+  // Nilai ID dari .env (konfirmasi ke admin BE).
+  // Dipakai bersama oleh module mode (simulasi/tryout/penyisihan).
+  jenjangToId: (jenjang) => {
+    if (jenjang === null || jenjang === undefined) return null;
+    const s = String(jenjang).trim().toLowerCase();
+    if (s === 'sd' || s === '1') return parseInt(process.env.NEXT_PUBLIC_JENJANG_SD_ID, 10) || 1;
+    if (s === 'smp' || s === '2') return parseInt(process.env.NEXT_PUBLIC_JENJANG_SMP_ID, 10) || 2;
+    return null;
+  },
+
+  // Kebalikan jenjangToId: ID integer BE → label 'sd'/'smp'
+  jenjangIdToLabel: (id) => {
+    if (id === null || id === undefined) return null;
+    const sdId = parseInt(process.env.NEXT_PUBLIC_JENJANG_SD_ID, 10) || 1;
+    const smpId = parseInt(process.env.NEXT_PUBLIC_JENJANG_SMP_ID, 10) || 2;
+    const n = parseInt(id, 10);
+    if (n === sdId) return 'sd';
+    if (n === smpId) return 'smp';
+    return null;
+  },
+
+  // GET /v1/master/pertanyaan/with-answers?jenjang={int}&jenis_soal={int}
+  // Response BE: { data: [{ id, soal, jenjang, jenisSoal, gambar, jawaban: [{id, jawaban, benar}] }] }
+  // Dinormalisasi ke bentuk yang dikonsumsi transformApiQuestions() di cbt.js
+  getWithAnswers: async (jenjangId, jenisSoalId) => {
+    const params = new URLSearchParams();
+    if (jenjangId) params.append('jenjang', String(jenjangId));
+    if (jenisSoalId) params.append('jenis_soal', String(jenisSoalId));
+    const qs = params.toString();
+
+    console.log(`📚 QUESTIONS API: Fetching with-answers (jenjang=${jenjangId}, jenis_soal=${jenisSoalId})`);
+    const response = await apiCall(`/master/pertanyaan/with-answers${qs ? `?${qs}` : ''}`);
+
+    const list = Array.isArray(response) ? response : (response.data || []);
+    if (!Array.isArray(list)) {
+      throw new Error('Format response soal tidak dikenal');
+    }
+
+    // Normalisasi: field BE → bentuk internal cbt (question_text/answers[].answer_text)
+    return list.map((q) => ({
+      id: q.id,
+      question_text: q.soal || '',
+      type: q.gambar ? 'image' : 'text',
+      level: q.jenjang === 1 ? 'SD' : q.jenjang === 2 ? 'SMP' : '',
+      question_img: q.gambar || null,
+      answers: Array.isArray(q.jawaban)
+        ? q.jawaban.map((a) => ({
+            id: a.id,
+            answer_text: a.jawaban || '',
+            // catatan: flag `benar` sengaja TIDAK diteruskan ke client
+          }))
+        : [],
+    }));
+  },
+
   getQuestions: async (level = null) => {
     const queryParam = level ? `?level=${level}` : '';
     return await apiCall(`/exam/questions${queryParam}`);
@@ -287,23 +454,30 @@ export const questionsAPI = {
   },
 };
 
-// User Answers API functions
+// User Answers API functions — BE: /v1/transaction/jawaban-user
 export const answersAPI = {
-  submitAnswer: async (userId, questionId, answerId) => {
-    return await apiCall('/exam/user-answers', {
+  // POST /v1/transaction/jawaban-user — simpan satu jawaban peserta.
+  // Body (swagger RequestJawabanUserFormat): { pesertaId, pertanyaanId, jawabanId }
+  submitAnswer: async (pesertaId, pertanyaanId, jawabanId) => {
+    const response = await apiCall('/transaction/jawaban-user', {
       method: 'POST',
       body: JSON.stringify({
-        user_id: userId,
-        question_id: questionId,
-        answer_id: answerId,
+        pesertaId,
+        pertanyaanId,
+        jawabanId,
       }),
     });
+    // Response BE dibungkus response.Base: { data: { id, ... } } — buka supaya
+    // pemanggil bisa langsung baca `id` record-nya (dipakai untuk DELETE saat batal)
+    return response?.data ?? response;
   },
 
+  // DELETE /v1/transaction/jawaban-user/{id} — hapus record jawaban peserta.
+  // ⚠️ id = id RECORD jawaban-user (dari POST / refetch), bukan id jawaban
   cancelAnswer: async (answerId) => {
-    console.log('Calling cancelAnswer API for answerId:', answerId);
+    console.log('Calling cancelAnswer API for recordId:', answerId);
     try {
-      const result = await apiCall(`/exam/user-answers/${answerId}`, {
+      const result = await apiCall(`/transaction/jawaban-user/${answerId}`, {
         method: 'DELETE',
       });
       console.log('cancelAnswer API success:', result);
@@ -314,8 +488,34 @@ export const answersAPI = {
     }
   },
 
-  getUserAnswers: async (userId) => {
-    return await apiCall(`/exam/user-answers/${userId}`);
+  // GET /v1/transaction/jawaban-user/{id} — detail satu record jawaban peserta.
+  // Dipakai untuk cek apakah peserta sudah/belum menjawab soal tertentu.
+  // Return: record { id, pesertaId, pertanyaanId, jawabanId, ... },
+  // atau null kalau record tidak ditemukan (404 → belum/batal menjawab)
+  getAnswerById: async (jawabanUserRecordId) => {
+    try {
+      const response = await apiCall(`/transaction/jawaban-user/${jawabanUserRecordId}`);
+      return response?.data ?? response;
+    } catch (error) {
+      if (error.status === 404) {
+        console.log('📋 ANSWERS: Record jawaban tidak ditemukan (belum/batal menjawab):', jawabanUserRecordId);
+        return null;
+      }
+      throw error;
+    }
+  },
+
+  // GET /v1/transaction/jawaban-user/peserta/{pesertaId} — semua jawaban peserta.
+  // Field BE (pertanyaanId/jawabanId) dinormalisasi ke question_id/answer_id
+  // sesuai bentuk yang dikonsumsi cbt.js (loadUserAnswers / refetchAnswers)
+  getUserAnswers: async (pesertaId) => {
+    const response = await apiCall(`/transaction/jawaban-user/peserta/${pesertaId}`);
+    const list = Array.isArray(response) ? response : (response.data || []);
+    return (Array.isArray(list) ? list : []).map((a) => ({
+      id: a.id,
+      question_id: a.pertanyaanId ?? a.pertanyaan_id,
+      answer_id: a.jawabanId ?? a.jawaban_id,
+    }));
   },
 
   toggleDoubt: async (answerId) => {
@@ -347,16 +547,33 @@ export const answersAPI = {
     return await apiCall(`/exam/results/${userId}`);
   },
 
-  // Submit final exam with additional data
-  submitExam: async (userId, examData) => {
-    return await apiCall('/exam/submit', {
+  // POST /v1/transaction/log-submit — catat submit peserta (swagger: "Mencatat submit peserta").
+  // Payload (RequestLogSubmitFormat): { durasiWaktu, id, isAutosubmit, pelanggaran, pesertaId }
+  // Respons BE tidak membawa hasil skor — endpoint ini hanya MENCATAT submit.
+  submitExam: async (pesertaId, { durationInMinutes, totalViolations, isAutoSubmit }) => {
+    const response = await apiCall('/transaction/log-submit', {
       method: 'POST',
       body: JSON.stringify({
-        userId,
-        ...examData
-      })
+        // ⚠️ Format durasiWaktu belum terdokumentasi di swagger — kirim menit sebagai
+        // string. Sesuaikan di sini kalau BE minta format lain (mis. "HH:MM:SS").
+        durasiWaktu: String(durationInMinutes),
+        isAutosubmit: Boolean(isAutoSubmit),
+        pelanggaran: typeof totalViolations === 'number' ? totalViolations : parseInt(totalViolations, 10) || 0,
+        pesertaId,
+      }),
     });
+    return response;
   },
+};
+
+// Decode payload JWT dengan aman (base64url: '-'→'+', '_'→'/', + padding).
+// Token Cognito/JWT sering mengandung karakter base64url yang bikin atob() polos gagal.
+const decodeJWTPayload = (token) => {
+  const part = token.split('.')[1];
+  if (!part) return null;
+  const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  return JSON.parse(atob(padded));
 };
 
 // Helper function to check if user is authenticated
@@ -372,10 +589,14 @@ export const isAuthenticated = () => {
   console.log('🔐 AUTH CHECK: ✅ Token found, validating...');
 
   try {
-    // Simple JWT decode to check if token is valid format
-    // Note: token might not be a standard JWT (e.g. opaque token) — in that case
-    // treat it as valid and let the server validate it via getCurrentUser()
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    // Decode JWT untuk cek kadaluarsa. Kalau bukan JWT (decode gagal),
+    // anggap valid dan biarkan server memvalidasi via getCurrentUser()
+    const payload = decodeJWTPayload(token);
+
+    if (!payload) {
+      console.warn('🔐 AUTH CHECK: ⚠️ Token is not a JWT, assuming valid');
+      return true;
+    }
 
     console.log('🔐 AUTH CHECK: Token payload:', payload);
 
@@ -414,11 +635,11 @@ export const getCurrentUserId = () => {
   }
 
   try {
-    // Simple JWT decode (you might want to use a proper JWT library)
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    const payload = decodeJWTPayload(token);
     console.log('🆔 USER ID: Token payload:', payload);
 
-    const userId = payload.sub || payload.user_id || payload.id;
+    // Cognito: `sub` (UUID) atau `username`; JWT umum: user_id / id
+    const userId = payload?.sub || payload?.username || payload?.user_id || payload?.id || null;
     console.log('🆔 USER ID: ✅ Extracted userId:', userId, typeof userId);
     return userId;
   } catch (error) {
@@ -428,4 +649,4 @@ export const getCurrentUserId = () => {
 };
 
 // Export token management functions
-export { getToken, setToken, removeToken, getUserId, setUserId };
+export { getToken, setToken, removeToken, getUserId, setUserId, getPesertaId, setPesertaId };

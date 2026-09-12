@@ -1,15 +1,76 @@
 // Exam schedule utility functions
 
 // Exam schedules by jenjang
+// Jadwal diambil dari .env (NEXT_PUBLIC_*) supaya bisa diubah tanpa edit kode.
+// PENTING: akses process.env harus statis (bukan bracket notation) agar
+// Next.js bisa inline nilainya saat build.
 export const examSchedules = {
   'sd': {
-    startTime: '00:00',
-    endTime: '09:30'
+    startTime: process.env.NEXT_PUBLIC_EXAM_SD_START || '00:00',
+    endTime: process.env.NEXT_PUBLIC_EXAM_SD_END || '09:30'
   },
   'smp': {
-    startTime: '00:00',
-    endTime: '14:30'
+    startTime: process.env.NEXT_PUBLIC_EXAM_SMP_START || '00:00',
+    endTime: process.env.NEXT_PUBLIC_EXAM_SMP_END || '14:30'
   }
+};
+
+// Mode ujian: jendela waktu (startExam - endExam) dari .env.
+// Dipakai di /start-exam untuk 3 pilihan: Simulasi / Tryout / Babak Penyisihan.
+export const modeSchedules = {
+  'simulasi': {
+    label: 'Simulasi',
+    startTime: process.env.NEXT_PUBLIC_SIMULASI_START || '00:00',
+    endTime: process.env.NEXT_PUBLIC_SIMULASI_END || '23:59'
+  },
+  'tryout': {
+    label: 'Tryout',
+    startTime: process.env.NEXT_PUBLIC_TRYOUT_START || '00:00',
+    endTime: process.env.NEXT_PUBLIC_TRYOUT_END || '23:59'
+  },
+  'penyisihan': {
+    label: 'Babak Penyisihan',
+    startTime: process.env.NEXT_PUBLIC_PENYISIHAN_START || '00:00',
+    endTime: process.env.NEXT_PUBLIC_PENYISIHAN_END || '23:59'
+  }
+};
+
+// Check if a MODE's exam window is currently open
+export const checkModeActive = (modeKey) => {
+  const schedule = modeSchedules[modeKey];
+  if (!schedule) {
+    return {
+      allowed: false,
+      message: 'Mode ujian tidak valid.',
+      status: 'invalid'
+    };
+  }
+
+  const now = new Date();
+  const currentTime = now.toTimeString().slice(0, 5); // Format: HH:MM
+
+  if (currentTime < schedule.startTime) {
+    return {
+      allowed: false,
+      message: `${schedule.label} belum dimulai. Jadwal: ${schedule.startTime} - ${schedule.endTime}. Silakan tunggu hingga pukul ${schedule.startTime}.`,
+      status: 'not_started',
+      nextTime: schedule.startTime
+    };
+  }
+
+  if (currentTime > schedule.endTime) {
+    return {
+      allowed: false,
+      message: `${schedule.label} telah berakhir pada pukul ${schedule.endTime}. Silakan hubungi panitia jika ada kendala.`,
+      status: 'ended'
+    };
+  }
+
+  return {
+    allowed: true,
+    message: `${schedule.label} sedang berlangsung (${schedule.startTime} - ${schedule.endTime}).`,
+    status: 'active'
+  };
 };
 
 // Check if current time is within exam schedule for given jenjang

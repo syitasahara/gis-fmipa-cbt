@@ -87,7 +87,7 @@ export default function LoginPage() {
       console.log('Login successful, redirecting to start-exam');
       // Small delay to ensure token is properly set
       setTimeout(() => {
-        router.push('/start');
+        router.push('/start-exam');
       }, 100);
     } catch (err) {
       // Handle different types of errors

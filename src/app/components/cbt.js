@@ -3,9 +3,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Clock, User, BookOpen, Send, HelpCircle, X, AlertTriangle, Image, Table, CheckCircle, Home, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId, removeToken } from '../utils/api';
+import { questionsAPI, answersAPI, authAPI, isAuthenticated, getCurrentUserId, getPesertaId, removeToken } from '../utils/api';
 import { setCookie, getCookie, deleteCookie } from '../utils/cookies';
-import { checkExamSchedule, examSchedules, getRemainingExamDuration, checkExamActive } from '../utils/examSchedule';
+import { checkExamSchedule, examSchedules, getRemainingExamDuration, checkExamActive, checkModeActive } from '../utils/examSchedule';
+import { getQuestions as getSimulasiQuestions } from '../utils/modeQuestions/simulasi';
+import { getQuestions as getTryoutQuestions } from '../utils/modeQuestions/tryout';
+import { getQuestions as getPenyisihanQuestions } from '../utils/modeQuestions/penyisihan';
+
+// Getter soal per mode ujian (dipilih di /start-exam, disimpan di localStorage 'examMode')
+const MODE_QUESTION_GETTERS = {
+  simulasi: getSimulasiQuestions,
+  tryout: getTryoutQuestions,
+  penyisihan: getPenyisihanQuestions,
+};
 import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
 import { 
   randomizeQuestionsAndAnswers, 
@@ -71,9 +81,9 @@ export default function QuizPage() {
         }
 
         console.log('Token found, verifying with server...');
-        
-        // Then verify token with server
-        const userData = await authAPI.getCurrentUser();
+
+        // Verify token with server + ambil data peserta (jenjang valid ada di record peserta)
+        const userData = await authAPI.getCurrentUserWithPeserta();
         console.log('User data loaded successfully:', userData);
         if (isMounted) {
           setUser(userData);
@@ -238,8 +248,15 @@ export default function QuizPage() {
     const loadQuestions = async () => {
       if (!user) return;
 
-      // Check exam schedule first
-      const scheduleCheck = checkSchedule(user.jenjang);
+      // Mode ujian yang dipilih di /start-exam (localStorage 'examMode')
+      const examMode = typeof window !== 'undefined' ? localStorage.getItem('examMode') : null;
+      const modeGetter = examMode ? MODE_QUESTION_GETTERS[examMode] : null;
+
+      // Check exam schedule first — jendela waktu MODE bila mode tersedia,
+      // fallback ke jadwal jenjang
+      const scheduleCheck = examMode && checkModeActive(examMode).status !== 'invalid'
+        ? checkModeActive(examMode)
+        : checkSchedule(user.jenjang);
       if (!scheduleCheck.allowed) {
         setError(scheduleCheck.message);
         setIsLoadingQuestions(false);
@@ -248,10 +265,13 @@ export default function QuizPage() {
 
       try {
         setIsLoadingQuestions(true);
-        
-        // Get all questions for the user's level dynamically from API
-        console.log(`Loading questions for level: ${user.jenjang}`);
-        const questionsData = await questionsAPI.getAllQuestions(user.jenjang);
+
+        // Get questions for the user's level — dari endpoint per-mode
+        // (with-answers) bila mode dikenal, fallback ke getAllQuestions
+        console.log(`Loading questions for level: ${user.jenjang}, mode: ${examMode || '(tidak dipilih)'}`);
+        const questionsData = modeGetter
+          ? await modeGetter(user.jenjang)
+          : await questionsAPI.getAllQuestions(user.jenjang);
         
         console.log('Raw questions data from API:', questionsData);
         
@@ -312,21 +332,81 @@ export default function QuizPage() {
     loadQuestions();
   }, [user]);
 
+  // Saat membuka detail soal tertentu: verifikasi ke server apakah peserta
+  // sudah/belum menjawab soal ini — GET /transaction/jawaban-user/{id}.
+  // - Record ditemukan → sudah menjawab → pilihan lokal disinkronkan dengan server
+  // - Record tidak ada / 404 → belum (atau sudah batal) menjawab → jawaban diaktifkan
+  useEffect(() => {
+    const question = questions[currentSoal - 1];
+    if (!question) return;
+
+    const recordId = userAnswerIds[currentSoal - 1];
+
+    // Tidak ada id record lokal → belum menjawab → opsi jawaban tetap aktif
+    if (!recordId) return;
+
+    let isStale = false; // guard navigasi cepat antar soal
+
+    const checkAnswerStatus = async () => {
+      try {
+        const record = await answersAPI.getAnswerById(recordId);
+        if (isStale) return;
+
+        const qIndex = currentSoal - 1;
+        const serverAnswerId = record ? (record.jawabanId ?? record.jawaban_id) : null;
+
+        if (serverAnswerId) {
+          // Sudah menjawab — pastikan pilihan lokal sesuai record server
+          setJawaban(prev => {
+            const aIndex = question.answers.findIndex(a => String(a.id) === String(serverAnswerId));
+            if (aIndex === -1 || prev[qIndex] === aIndex) return prev;
+            const updated = [...prev];
+            updated[qIndex] = aIndex;
+            return updated;
+          });
+        } else {
+          // Record tidak ditemukan di server → kosongkan pilihan → jawaban aktif lagi
+          setJawaban(prev => {
+            if (prev[qIndex] === null) return prev;
+            const updated = [...prev];
+            updated[qIndex] = null;
+            return updated;
+          });
+          setUserAnswerIds(prev => {
+            if (prev[qIndex] === null) return prev;
+            const updated = [...prev];
+            updated[qIndex] = null;
+            return updated;
+          });
+        }
+      } catch (error) {
+        console.warn(`Gagal cek status jawaban soal ${currentSoal}:`, error.message);
+      }
+    };
+
+    checkAnswerStatus();
+
+    return () => {
+      isStale = true;
+    };
+  }, [currentSoal, questions, userAnswerIds]);
+
   // Load existing user answers
   const loadUserAnswers = useCallback(async (questionsData) => {
     if (!user) return;
 
     try {
-      let userId = getCurrentUserId();
-      
-      // If getting userId from token fails, try to get it from user object
-      if (!userId && user && user.id) {
-        userId = user.id;
-      }
-      
-      if (!userId) return;
+      // Jawaban tersimpan per PESERTA (bukan per user account)
+      let pesertaId = getPesertaId();
 
-      const userAnswers = await answersAPI.getUserAnswers(userId);
+      // Fallback: dari user object hasil merge peserta
+      if (!pesertaId && user) {
+        pesertaId = user.pesertaId || user.peserta?.id || null;
+      }
+
+      if (!pesertaId) return;
+
+      const userAnswers = await answersAPI.getUserAnswers(pesertaId);
       
       // Map existing answers to frontend state
       userAnswers.forEach(answer => {
@@ -361,15 +441,15 @@ export default function QuizPage() {
   const refetchAnswers = async () => {
     setIsRefetching(true);
     try {
-      let userId = getCurrentUserId();
-      if (!userId && user && user.id) {
-        userId = user.id;
+      let pesertaId = getPesertaId();
+      if (!pesertaId && user) {
+        pesertaId = user.pesertaId || user.peserta?.id || null;
       }
-      
-      if (!userId) return;
 
-      console.log('REFETCH: Getting latest answers from server for user:', userId);
-      const userAnswers = await answersAPI.getUserAnswers(userId);
+      if (!pesertaId) return;
+
+      console.log('REFETCH: Getting latest answers from server for peserta:', pesertaId);
+      const userAnswers = await answersAPI.getUserAnswers(pesertaId);
       
       console.log('REFETCH: Got answers from server:', userAnswers);
       
@@ -504,17 +584,16 @@ export default function QuizPage() {
     setError(''); // Clear any previous errors
 
     try {
-      let userId = getCurrentUserId();
-      
-      // If getting userId from token fails, try to get it from user object
-      if (!userId && user && user.id) {
-        userId = user.id;
+      // Jawaban tersimpan per PESERTA (bukan per user account)
+      let pesertaId = getPesertaId();
+      if (!pesertaId && user) {
+        pesertaId = user.pesertaId || user.peserta?.id || null;
       }
-      
-      if (!userId) throw new Error('User ID not found');
+
+      if (!pesertaId) throw new Error('Peserta ID not found');
 
       console.log('STEP 1: Submitting answer to server FIRST:', {
-        userId,
+        pesertaId,
         questionId: currentQuestion.id,
         answerId: selectedAnswer.id,
         questionNumber: currentSoal,
@@ -524,13 +603,14 @@ export default function QuizPage() {
       // If there's an existing answer, delete it first
       const existingAnswerId = userAnswerIds[currentSoal - 1];
       if (existingAnswerId) {
-        console.log('Deleting existing answer:', existingAnswerId);
+        console.log('Deleting existing answer record:', existingAnswerId);
         await answersAPI.cancelAnswer(existingAnswerId);
       }
 
       // STEP 1: Submit new answer to server FIRST
+      // → POST /transaction/jawaban-user, response berisi id record (untuk DELETE)
       const response = await answersAPI.submitAnswer(
-        userId,
+        pesertaId,
         currentQuestion.id,
         selectedAnswer.id
       );
@@ -673,9 +753,15 @@ export default function QuizPage() {
       // Get violations count from cookie
       const totalViolations = parseInt(getCookie('violations') || '0');
       
-      // Submit exam data first
+      // Catat submit ke BE (log-submit) — identitas pakai pesertaId, bukan user id
+      let pesertaId = getPesertaId();
+      if (!pesertaId && user) {
+        pesertaId = user.pesertaId || user.peserta?.id || null;
+      }
+
       try {
-        await answersAPI.submitExam(userId, {
+        if (!pesertaId) throw new Error('Peserta ID not found');
+        await answersAPI.submitExam(pesertaId, {
           durationInMinutes,
           totalViolations,
           isAutoSubmit
@@ -892,11 +978,11 @@ export default function QuizPage() {
               if (typeof window !== 'undefined') {
                 localStorage.removeItem('authToken');
               }
-              router.push('/login');
+              router.push('/start-exam');
             }}
             className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
           >
-            Kembali ke Login
+            Kembali ke Menu Soal
           </button>
         </div>
       </div>
@@ -1229,7 +1315,7 @@ export default function QuizPage() {
               {currentQuestion.type == 'image' && (
                 <div className="mb-4 sm:mb-6 rounded-lg overflow-hidden border border-gray-200">
                   <img 
-                    src={`https://api.gisofficial.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img}`} 
+                    src={`https://api.gisofficial.com/v1/files?path=${currentQuestion.question_img}`} 
                     alt="Gambar soal" 
                     className="w-full h-auto object-contain max-h-[300px] sm:max-h-[400px]" 
                     onError={(e) => {
