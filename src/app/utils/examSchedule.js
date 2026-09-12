@@ -3,11 +3,11 @@
 // Exam schedules by jenjang
 export const examSchedules = {
   'sd': {
-    startTime: '07:00',
+    startTime: '00:00',
     endTime: '09:30'
   },
   'smp': {
-    startTime: '13:00',
+    startTime: '00:00',
     endTime: '14:30'
   }
 };

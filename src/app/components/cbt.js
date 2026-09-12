@@ -1229,7 +1229,7 @@ export default function QuizPage() {
               {currentQuestion.type == 'image' && (
                 <div className="mb-4 sm:mb-6 rounded-lg overflow-hidden border border-gray-200">
                   <img 
-                    src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img}`} 
+                    src={`https://api.gisofficial.com/gis-backend-v5/storage/app/public/${currentQuestion.question_img}`} 
                     alt="Gambar soal" 
                     className="w-full h-auto object-contain max-h-[300px] sm:max-h-[400px]" 
                     onError={(e) => {
@@ -1304,7 +1304,7 @@ export default function QuizPage() {
                             {isImageAnswer && (
                               <div className="w-full max-w-md">
                                 <img 
-                                  src={`https://gis-backend.karyavisual.com/gis-backend-v5/storage/app/public/${originalAnswer.answer_img}`}
+                                  src={`https://api.gisofficial.com/gis-backend-v5/storage/app/public/${originalAnswer.answer_img}`}
                                   alt={`Jawaban ${String.fromCharCode(65 + idx)}`}
                                   className="w-full h-auto max-h-48 object-contain rounded-lg border border-gray-200"
                                   onError={(e) => {

@@ -8,7 +8,7 @@ export const questionsSD = [
     "question_img": "questions/mYBL7jK67XCv9XbvbRSmZGgYZCR2SikNU0ScK41d.png",
     "created_at": "2025-09-16T04:43:29.000000Z",
     "updated_at": "2025-09-16T04:43:29.000000Z",
-    "question_img_url": "https://gis-backend.karyavisual.com/storage/questions/mYBL7jK67XCv9XbvbRSmZGgYZCR2SikNU0ScK41d.png",
+    "question_img_url": "https://api.gisofficial.com/storage/questions/mYBL7jK67XCv9XbvbRSmZGgYZCR2SikNU0ScK41d.png",
     "answers": [
       {
         "id": "08f45615-5bb9-4ce6-a092-7d684ea55a14",
@@ -64,7 +64,7 @@ export const questionsSD = [
     "question_img": "questions/g0s5ucgmaXaa6uPQ02O7BTChGpolr5Yid0Hc6Nll.png",
     "created_at": "2025-09-15T17:07:45.000000Z",
     "updated_at": "2025-09-15T17:07:45.000000Z",
-    "question_img_url": "https://gis-backend.karyavisual.com/storage/questions/g0s5ucgmaXaa6uPQ02O7BTChGpolr5Yid0Hc6Nll.png",
+    "question_img_url": "https://api.gisofficial.com/storage/questions/g0s5ucgmaXaa6uPQ02O7BTChGpolr5Yid0Hc6Nll.png",
     "answers": [
       {
         "id": "10363eff-d49b-4c74-b988-2466e4133409",

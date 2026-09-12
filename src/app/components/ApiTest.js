@@ -95,7 +95,7 @@ const ApiTest = () => {
           </p>
           <button
             onClick={() => {
-              fetch('https://gis-backend.karyavisual.com/api/exam/questions')
+              fetch('https://api.gisofficial.com/api/exam/questions')
                 .then(res => res.json())
                 .then(data => {
                   alert('Direct API call success! Check console for data.');

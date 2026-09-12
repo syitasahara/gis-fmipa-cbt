@@ -50,7 +50,7 @@ export default function StartExam() {
         
         if (isMounted) {
           setTimeout(() => {
-            router.push('/login');
+            router.push('/');
           }, 1000);
         }
         return;
