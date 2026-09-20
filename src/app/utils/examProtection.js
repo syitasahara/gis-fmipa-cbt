@@ -31,8 +31,8 @@ export function useExamProtection() {
 export function useStartExamProtection() {
   return {
     startExam: () => {
-      // Durasi dari .env (menit), default 60 — dibaca saat build
-      const examDuration = (parseInt(process.env.NEXT_PUBLIC_EXAM_DURATION_MINUTES, 10) || 60) * 60 * 1000;
+      // Durasi satu sesi dibaca saat build dan dimulai ulang setiap startExam.
+      const examDuration = (parseInt(process.env.NEXT_PUBLIC_EXAM_DURATION_MINUTES, 10) || 90) * 60 * 1000;
       const startTime = new Date().getTime();
       const endTime = startTime + examDuration;
       

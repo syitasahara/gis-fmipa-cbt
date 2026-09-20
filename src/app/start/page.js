@@ -44,7 +44,7 @@ const Page = () => {
                 Gebyar Ilmiah Sains
               </h1>
               <p className="text-sm text-purple-600/80">
-                Olimpiade CBT Science Competition
+                Olimpiade Science Competition
               </p>
             </div>
           </div>

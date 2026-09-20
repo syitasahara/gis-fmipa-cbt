@@ -1,11 +1,36 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { isAuthenticated, authAPI, removeToken, getToken } from '../utils/api';
-import { useStartExamProtection, isExamInProgress } from '../utils/examProtection';
-import { modeSchedules, checkModeActive } from '../utils/examSchedule';
-import { BookOpen, Clock, Users, Play, ChevronRight, User, LogOut, CheckCircle, FlaskConical, ClipboardList, Trophy, AlertCircle } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  isAuthenticated,
+  authAPI,
+  answersAPI,
+  removeToken,
+  getToken,
+  getPesertaId,
+} from "../utils/api";
+import {
+  useStartExamProtection,
+  isExamInProgress,
+} from "../utils/examProtection";
+import { modeSchedules, checkModeActive } from "../utils/examSchedule";
+import { deleteCookie } from "../utils/cookies";
+import {
+  BookOpen,
+  Clock,
+  Calendar,
+  Users,
+  Play,
+  ChevronRight,
+  User,
+  LogOut,
+  CheckCircle,
+  FlaskConical,
+  ClipboardList,
+  Trophy,
+  AlertCircle,
+} from "lucide-react";
 
 // Icon per mode ujian
 const MODE_ICONS = {
@@ -19,11 +44,17 @@ export default function StartExam() {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [modeStatuses, setModeStatuses] = useState({});
-  const [examError, setExamError] = useState('');
+  const [examError, setExamError] = useState("");
+  const [isStartingExam, setIsStartingExam] = useState(false);
+
+  // State untuk dropdown menu logout
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
   const { startExam } = useStartExamProtection();
 
   // Durasi ujian dari .env (menit)
-  const examDurationMinutes = parseInt(process.env.NEXT_PUBLIC_EXAM_DURATION_MINUTES, 10) || 60;
+  const examDurationMinutes =
+    parseInt(process.env.NEXT_PUBLIC_EXAM_DURATION_MINUTES, 10) || 60;
 
   useEffect(() => {
     let isMounted = true;
@@ -32,20 +63,23 @@ export default function StartExam() {
       try {
         // Token hasil login dibaca dari localStorage 'authToken' (diset oleh authAPI.login)
         const token = getToken();
-        console.log('🎫 START-EXAM: Token dari login:', token ? `✅ ${token.substring(0, 25)}...` : '❌ tidak ada');
+        console.log(
+          "🎫 START-EXAM: Token dari login:",
+          token ? `✅ ${token.substring(0, 25)}...` : "❌ tidak ada",
+        );
 
         if (!token || !isAuthenticated()) {
           if (isMounted) {
-            router.push('/login');
+            router.push("/login");
           }
           return;
         }
 
         // Check if exam is in progress
         if (isExamInProgress()) {
-          console.log('Exam already in progress, redirecting to quiz');
+          console.log("Exam already in progress, redirecting to quiz");
           if (isMounted) {
-            router.push('/quiz');
+            router.push("/quiz");
           }
           return;
         }
@@ -56,14 +90,14 @@ export default function StartExam() {
           setUser(userData);
         }
       } catch (error) {
-        console.error('Auth error:', error);
+        console.error("Auth error:", error);
 
         // Clear invalid token
         removeToken();
 
         if (isMounted) {
           setTimeout(() => {
-            router.push('/');
+            router.push("/");
           }, 1000);
         }
         return;
@@ -97,32 +131,86 @@ export default function StartExam() {
   }, []);
 
   // Pilih mode ujian → cek jendela waktunya → mulai ujian
-  const handleSelectMode = (modeKey) => {
+  const handleSelectMode = async (modeKey) => {
+    if (isStartingExam) return;
+
     const scheduleCheck = checkModeActive(modeKey);
     if (!scheduleCheck.allowed) {
       setExamError(scheduleCheck.message);
       return;
     }
 
-    console.log(`🚀 START-EXAM: Mode dipilih: ${modeKey}`);
-    // Simpan mode — dibaca oleh cbt.js untuk fetch soal yang sesuai
-    localStorage.setItem('examMode', modeKey);
+    setIsStartingExam(true);
+    setExamError("");
 
-    // Aktifkan proteksi ujian
-    startExam();
-    // Redirect ke halaman quiz
-    router.push('/quiz');
+    try {
+      if (modeKey === "simulasi" || modeKey === "tryout") {
+        let pesertaId = getPesertaId();
+        if (!pesertaId && user) {
+          pesertaId = user.pesertaId || user.peserta?.id || null;
+        }
+        if (!pesertaId) throw new Error("Peserta ID tidak ditemukan");
+
+        // Jawaban peserta tidak memiliki session id di backend, jadi hapus
+        // jawaban lama sebelum memulai sesi simulasi/tryout baru.
+        await answersAPI.clearUserAnswers(pesertaId);
+        deleteCookie(`ragu_ragu_${user.id}_${user.jenjang}`);
+      }
+
+      console.log(`🚀 START-EXAM: Mode dipilih: ${modeKey}`);
+      localStorage.setItem("examMode", modeKey);
+      startExam();
+      router.push("/quiz");
+    } catch (error) {
+      console.error("Gagal mereset sesi ujian:", error);
+      setExamError("Sesi sebelumnya belum dapat direset. Silakan coba lagi.");
+      setIsStartingExam(false);
+    }
   };
 
   const handleLogout = async () => {
     try {
-      localStorage.removeItem('examMode');
+      localStorage.removeItem("examMode");
       await authAPI.logout();
-      router.push('/login');
+      router.push("/login");
     } catch (error) {
-      console.error('Logout error:', error);
-      router.push('/login');
+      console.error("Logout error:", error);
+      router.push("/login");
     }
+  };
+
+  const formatDateRange = (startDate, endDate) => {
+    if (!startDate || !endDate) return "";
+
+    const d1 = new Date(startDate);
+    const d2 = new Date(endDate);
+
+    // Ambil tanggal, nama bulan, dan tahun untuk d1 dan d2
+    const day1 = d1.getDate();
+    const month1 = d1.toLocaleDateString("id-ID", { month: "long" });
+    const year1 = d1.getFullYear();
+
+    const day2 = d2.getDate();
+    const month2 = d2.toLocaleDateString("id-ID", { month: "long" });
+    const year2 = d2.getFullYear();
+
+    // Kondisi 1: Jika di hari yang sama persis (contoh: 20 September 2026)
+    if (year1 === year2 && month1 === month2 && day1 === day2) {
+      return `${day1} ${month1} ${year1}`;
+    }
+
+    // Kondisi 2: Jika Bulan dan Tahun sama (contoh: 20 - 23 September 2026)
+    if (year1 === year2 && month1 === month2) {
+      return `${day1} - ${day2} ${month1} ${year1}`;
+    }
+
+    // Kondisi 3: Jika Tahun sama, tapi Bulan beda (contoh: 28 September - 2 Oktober 2026)
+    if (year1 === year2) {
+      return `${day1} ${month1} - ${day2} ${month2} ${year1}`;
+    }
+
+    // Kondisi 4: Jika Tahun beda (contoh: 20 Desember 2025 - 5 Januari 2026)
+    return `${day1} ${month1} ${year1} - ${day2} ${month2} ${year2}`;
   };
 
   if (isLoading) {
@@ -153,25 +241,39 @@ export default function StartExam() {
                 <h1 className="text-xl font-bold bg-gradient-to-r from-violet-700 to-purple-700 bg-clip-text text-transparent">
                   Gebyar Ilmiah Sains
                 </h1>
-                <p className="text-sm text-purple-600/80">Olimpiade CBT Science Competition</p>
+                <p className="text-sm text-purple-600/80">
+                  Olimpiade Science Competition
+                </p>
               </div>
             </div>
 
-            {/* User Info & Logout */}
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2 bg-purple-50 px-3 py-2 rounded-lg">
+            {/* User Info & Logout Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center space-x-2 bg-purple-50 px-4 py-2 rounded-lg hover:bg-purple-100 transition-colors focus:outline-none"
+              >
                 <User className="w-4 h-4 text-purple-600" />
                 <span className="text-sm font-medium text-purple-700">
-                  {user?.name || user?.username || user?.nama || 'User'}
+                  {user?.name || user?.username || user?.nama || "User"}
                 </span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-1 text-gray-600 hover:text-red-600 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="text-sm">Logout</span>
               </button>
+
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-36 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false);
+                      handleLogout();
+                    }}
+                    className="flex items-center w-full px-4 py-2 space-x-2 text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="text-sm font-medium">Logout</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -187,7 +289,8 @@ export default function StartExam() {
           </h1>
 
           <p className="text-lg text-purple-800/90 mb-8 max-w-2xl mx-auto">
-            Pilih mode ujian yang ingin diikuti. Setelah dimulai, waktu akan berjalan terus.
+            Pilih mode ujian yang ingin diikuti. Setelah dimulai, waktu akan
+            berjalan terus.
           </p>
         </div>
 
@@ -197,8 +300,12 @@ export default function StartExam() {
             <div className="bg-violet-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
               <Clock className="w-6 h-6 text-violet-600" />
             </div>
-            <h3 className="text-lg font-bold text-gray-800 mb-2">Waktu Ujian</h3>
-            <p className="text-2xl font-bold text-violet-700">{examDurationMinutes} Menit</p>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">
+              Waktu Ujian
+            </h3>
+            <p className="text-2xl font-bold text-violet-700">
+              {examDurationMinutes} Menit
+            </p>
           </div>
 
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-md border border-purple-100 text-center">
@@ -207,7 +314,7 @@ export default function StartExam() {
             </div>
             <h3 className="text-lg font-bold text-gray-800 mb-2">Jenjang</h3>
             <p className="text-2xl font-bold text-purple-700">
-              {String(user?.jenjang || 'SMP').toUpperCase()}
+              {String(user?.jenjang || "SMP").toUpperCase()}
             </p>
           </div>
 
@@ -217,7 +324,7 @@ export default function StartExam() {
             </div>
             <h3 className="text-lg font-bold text-gray-800 mb-2">Nama</h3>
             <p className="text-xl font-bold text-fuchsia-700 break-words">
-              {user?.name || user?.username || user?.nama || 'Peserta'}
+              {user?.name || user?.username || user?.nama || "Peserta"}
             </p>
           </div>
         </div>
@@ -225,33 +332,37 @@ export default function StartExam() {
         {/* Mode Selection Cards */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           {Object.entries(modeSchedules).map(([key, schedule]) => {
-            const status = modeStatuses[key] || { status: 'unknown' };
-            const isActive = status.status === 'active';
+            const status = modeStatuses[key] || { status: "unknown" };
+            const isActive = status.status === "active";
             const Icon = MODE_ICONS[key] || BookOpen;
 
-            const accent = {
-              simulasi: {
-                border: 'border-violet-200',
-                iconBg: 'bg-violet-100',
-                iconText: 'text-violet-600',
-                gradient: 'from-violet-700 to-purple-700',
-                badge: 'bg-green-200 text-green-800 animate-pulse',
-              },
-              tryout: {
-                border: 'border-purple-200',
-                iconBg: 'bg-purple-100',
-                iconText: 'text-purple-600',
-                gradient: 'from-purple-700 to-fuchsia-700',
-                badge: 'bg-green-200 text-green-800 animate-pulse',
-              },
-              penyisihan: {
-                border: 'border-fuchsia-200',
-                iconBg: 'bg-fuchsia-100',
-                iconText: 'text-fuchsia-600',
-                gradient: 'from-fuchsia-700 to-pink-700',
-                badge: 'bg-green-200 text-green-800 animate-pulse',
-              },
-            }[key] || {};
+            const accent =
+              {
+                simulasi: {
+                  border: "border-violet-200",
+                  iconBg: "bg-violet-100",
+                  iconText: "text-violet-600",
+                  gradient: "from-violet-700 to-purple-700",
+                },
+                tryout: {
+                  border: "border-purple-200",
+                  iconBg: "bg-purple-100",
+                  iconText: "text-purple-600",
+                  gradient: "from-purple-700 to-fuchsia-700",
+                },
+                penyisihan: {
+                  border: "border-fuchsia-200",
+                  iconBg: "bg-fuchsia-100",
+                  iconText: "text-fuchsia-600",
+                  gradient: "from-fuchsia-700 to-pink-700",
+                },
+              }[key] || {};
+            const statusBadge =
+              {
+                not_started: "bg-yellow-200 text-yellow-800",
+                active: "bg-green-200 text-green-800 animate-pulse",
+                ended: "bg-red-200 text-red-800",
+              }[status.status] || "bg-gray-200 text-gray-600";
 
             return (
               <button
@@ -261,37 +372,52 @@ export default function StartExam() {
                 className={`relative bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-md border-2 ${accent.border} text-left transition-all duration-300 ${
                   isActive
                     ? `hover:shadow-xl hover:scale-[1.02] cursor-pointer`
-                    : 'opacity-60 cursor-not-allowed'
+                    : "opacity-60 cursor-not-allowed"
                 }`}
               >
                 {/* Status badge */}
-                <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold shadow-sm ${accent.badge} ${
-                  isActive ? '' : 'bg-gray-200 text-gray-600 animate-none'
-                }`}>
-                  {isActive && '🟢 Dibuka'}
-                  {status.status === 'not_started' && '🔵 Belum Dimulai'}
-                  {status.status === 'ended' && '🔴 Berakhir'}
-                  {status.status === 'unknown' && '−'}
+                <div
+                  className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold shadow-sm ${statusBadge}`}
+                >
+                  {isActive && "🟢 Dibuka"}
+                  {status.status === "not_started" && "🟡 Belum Dimulai"}
+                  {status.status === "ended" && "🔴 Berakhir"}
+                  {status.status === "unknown" && "−"}
                 </div>
 
-                <div className={`${accent.iconBg} w-14 h-14 rounded-2xl flex items-center justify-center mb-4`}>
+                <div
+                  className={`${accent.iconBg} w-14 h-14 rounded-2xl flex items-center justify-center mb-4`}
+                >
                   <Icon className={`w-7 h-7 ${accent.iconText}`} />
                 </div>
 
-                <h3 className="text-xl font-bold text-gray-800 mb-2">{schedule.label}</h3>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">
+                  {schedule.label}
+                </h3>
+
+                <div className="flex items-center space-x-2 text-sm text-gray-600 mb-2">
+                  <Calendar className="w-4 h-4 text-gray-400" />
+                  <span>
+                    {formatDateRange(schedule.startDate, schedule.endDate)}
+                  </span>
+                </div>
 
                 <div className="flex items-center space-x-2 text-sm text-gray-600 mb-4">
                   <Clock className="w-4 h-4 text-gray-400" />
-                  <span>{schedule.startTime} - {schedule.endTime}</span>
+                  <span>
+                    {schedule.startTime} - {schedule.endTime}
+                  </span>
                 </div>
 
-                <div className={`inline-flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-sm ${
-                  isActive
-                    ? `bg-gradient-to-r ${accent.gradient} text-white shadow-md`
-                    : 'bg-gray-100 text-gray-500'
-                }`}>
+                <div
+                  className={`inline-flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-sm ${
+                    isActive
+                      ? `bg-gradient-to-r ${accent.gradient} text-white shadow-md`
+                      : "bg-gray-100 text-gray-500"
+                  }`}
+                >
                   <Play className="w-4 h-4" />
-                  <span>{isActive ? 'Mulai' : 'Tidak Tersedia'}</span>
+                  <span>{isActive ? "Mulai" : "Tidak Tersedia"}</span>
                   {isActive && <ChevronRight className="w-4 h-4" />}
                 </div>
               </button>
@@ -307,7 +433,9 @@ export default function StartExam() {
                 <AlertCircle className="w-5 h-5 text-amber-600" />
               </div>
               <div className="flex-1">
-                <h4 className="text-lg font-bold text-amber-800 mb-2">Mode Belum Tersedia</h4>
+                <h4 className="text-lg font-bold text-amber-800 mb-2">
+                  Mode Belum Tersedia
+                </h4>
                 <p className="text-amber-700">{examError}</p>
               </div>
             </div>
@@ -327,11 +455,16 @@ export default function StartExam() {
             </li>
             <li className="flex items-start">
               <span className="text-purple-600 mr-3">•</span>
-              <span>Jangan menutup browser atau tab selama ujian berlangsung</span>
+              <span>
+                Jangan menutup browser atau tab selama ujian berlangsung
+              </span>
             </li>
             <li className="flex items-start">
               <span className="text-purple-600 mr-3">•</span>
-              <span>Anda dapat menandai soal yang diragu-ragukan untuk dikerjakan nanti</span>
+              <span>
+                Anda dapat menandai soal yang diragu-ragukan untuk dikerjakan
+                nanti
+              </span>
             </li>
             <li className="flex items-start">
               <span className="text-purple-600 mr-3">•</span>
