@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -11,13 +11,14 @@ import {
   HelpCircle,
   X,
   AlertTriangle,
-  Image,
+  Image as ImageIcon,
   Table,
   CheckCircle,
   Home,
   Loader2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import NextImage from "next/image";
 import {
   questionsAPI,
   answersAPI,
@@ -89,6 +90,8 @@ export default function QuizPage() {
   const [submissionResult, setSubmissionResult] = useState(null);
   const [showFinalSubmitConfirm, setShowFinalSubmitConfirm] = useState(false);
   const [error, setError] = useState("");
+  const submitExamRef = useRef(null);
+  const timeUpHandledRef = useRef(false);
 
   // Authentication check
   useEffect(() => {
@@ -184,26 +187,10 @@ export default function QuizPage() {
       }
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden" && isExamInProgress()) {
-        // User meninggalkan tab
-        const currentViolations = parseInt(getCookie("violations") || "0");
-        const newViolations = currentViolations + 1;
-        setCookie("violations", newViolations.toString());
-        setViolations(newViolations);
-
-        if (newViolations >= 3) {
-          setShowCheatingWarning(true);
-        }
-      }
-    };
-
     window.addEventListener("beforeunload", handleBeforeUnload);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -229,23 +216,26 @@ export default function QuizPage() {
     setCookie(cookieKey, JSON.stringify(raguArray), 7); // Expire in 7 days
   };
 
-  const loadRaguRaguFromCookie = (questionsLength) => {
-    if (!user) return Array(questionsLength).fill(false);
-    const cookieKey = `ragu_ragu_${user.id}_${user.jenjang}`;
-    const savedRagu = getCookie(cookieKey);
-    if (savedRagu) {
-      try {
-        const parsed = JSON.parse(savedRagu);
-        // Ensure array length matches current questions
-        if (Array.isArray(parsed) && parsed.length === questionsLength) {
-          return parsed;
+  const loadRaguRaguFromCookie = useCallback(
+    (questionsLength) => {
+      if (!user) return Array(questionsLength).fill(false);
+      const cookieKey = `ragu_ragu_${user.id}_${user.jenjang}`;
+      const savedRagu = getCookie(cookieKey);
+      if (savedRagu) {
+        try {
+          const parsed = JSON.parse(savedRagu);
+          // Ensure array length matches current questions
+          if (Array.isArray(parsed) && parsed.length === questionsLength) {
+            return parsed;
+          }
+        } catch (error) {
+          console.error("Error parsing ragu-ragu from cookie:", error);
         }
-      } catch (error) {
-        console.error("Error parsing ragu-ragu from cookie:", error);
       }
-    }
-    return Array(questionsLength).fill(false);
-  };
+      return Array(questionsLength).fill(false);
+    },
+    [user],
+  );
 
   // Get or create consistent seed for this user session
   const getUserSeed = () => {
@@ -279,6 +269,52 @@ export default function QuizPage() {
     }
     return shuffled;
   };
+
+  const loadUserAnswers = useCallback(
+    async (questionsData) => {
+      if (!user) return;
+
+      try {
+        let pesertaId = getPesertaId();
+        if (!pesertaId) {
+          pesertaId = user.pesertaId || user.peserta?.id || null;
+        }
+        if (!pesertaId) return;
+
+        const userAnswers = await answersAPI.getUserAnswers(pesertaId);
+        userAnswers.forEach((answer) => {
+          const questionIndex = questionsData.findIndex(
+            (question) => question.id === answer.question_id,
+          );
+          if (questionIndex === -1) return;
+
+          const answerIndex = questionsData[questionIndex].answers.findIndex(
+            (answerOption) => answerOption.id === answer.answer_id,
+          );
+          if (answerIndex === -1) return;
+
+          setJawaban((prev) => {
+            const updated = [...prev];
+            updated[questionIndex] = answerIndex;
+            return updated;
+          });
+          setRaguRagu((prev) => {
+            const updated = [...prev];
+            updated[questionIndex] = answer.is_doubtful || false;
+            return updated;
+          });
+          setUserAnswerIds((prev) => {
+            const updated = [...prev];
+            updated[questionIndex] = answer.id;
+            return updated;
+          });
+        });
+      } catch (error) {
+        console.error("Error loading user answers:", error);
+      }
+    },
+    [user],
+  );
 
   // Load questions
   useEffect(() => {
@@ -377,7 +413,7 @@ export default function QuizPage() {
     };
 
     loadQuestions();
-  }, [user]);
+  }, [user, loadRaguRaguFromCookie, loadUserAnswers]);
 
   // Saat membuka detail soal tertentu: verifikasi ke server apakah peserta
   // sudah/belum menjawab soal ini — GET /transaction/jawaban-user/{id}.
@@ -445,59 +481,6 @@ export default function QuizPage() {
     };
   }, [currentSoal, questions, userAnswerIds]);
 
-  // Load existing user answers
-  const loadUserAnswers = useCallback(
-    async (questionsData) => {
-      if (!user) return;
-
-      try {
-        // Jawaban tersimpan per PESERTA (bukan per user account)
-        let pesertaId = getPesertaId();
-
-        // Fallback: dari user object hasil merge peserta
-        if (!pesertaId && user) {
-          pesertaId = user.pesertaId || user.peserta?.id || null;
-        }
-
-        if (!pesertaId) return;
-
-        const userAnswers = await answersAPI.getUserAnswers(pesertaId);
-
-        // Map existing answers to frontend state
-        userAnswers.forEach((answer) => {
-          const questionIndex = questionsData.findIndex(
-            (q) => q.id === answer.question_id,
-          );
-          if (questionIndex !== -1) {
-            const answerIndex = questionsData[questionIndex].answers.findIndex(
-              (a) => a.id === answer.answer_id,
-            );
-            if (answerIndex !== -1) {
-              setJawaban((prev) => {
-                const updated = [...prev];
-                updated[questionIndex] = answerIndex;
-                return updated;
-              });
-              setRaguRagu((prev) => {
-                const updated = [...prev];
-                updated[questionIndex] = answer.is_doubtful || false;
-                return updated;
-              });
-              setUserAnswerIds((prev) => {
-                const updated = [...prev];
-                updated[questionIndex] = answer.id;
-                return updated;
-              });
-            }
-          }
-        });
-      } catch (error) {
-        console.error("Error loading user answers:", error);
-      }
-    },
-    [user],
-  );
-
   // Refetch answers from server to ensure synchronization
   const refetchAnswers = async () => {
     setIsRefetching(true);
@@ -563,18 +546,16 @@ export default function QuizPage() {
   // Handle visibility changes (tab switching)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setViolations((prev) => {
-          const newCount = prev + 1;
-          setCookie("violations", newCount);
-          if (newCount >= 5) {
-            // Show cheating warning first
-            setShowCheatingWarning(true);
-          } else {
-            setShowWarning(true);
-          }
-          return newCount;
-        });
+      if (!document.hidden || !isExamInProgress()) return;
+
+      const newCount = parseInt(getCookie("violations") || "0", 10) + 1;
+      setCookie("violations", newCount.toString());
+      setViolations(newCount);
+
+      if (newCount >= 5) {
+        setShowCheatingWarning(true);
+      } else {
+        setShowWarning(true);
       }
     };
 
@@ -600,12 +581,14 @@ export default function QuizPage() {
     }
   }, [error, user]);
 
-  const handleTimeUp = () => {
+  const handleTimeUp = useCallback(() => {
+    if (timeUpHandledRef.current) return;
+    timeUpHandledRef.current = true;
     setShowTimeUpModal(true);
     setTimeout(() => {
-      kirimJawaban(true);
+      submitExamRef.current?.(true);
     }, 3000);
-  };
+  }, []);
 
   useEffect(() => {
     if (!isTimerReady || timeLeft <= 0) return undefined;
@@ -973,6 +956,10 @@ export default function QuizPage() {
       }, 1000);
     }
   };
+
+  useEffect(() => {
+    submitExamRef.current = kirimJawaban;
+  });
 
   const handleBackToHome = () => {
     setShowSuccessModal(false);
@@ -1423,7 +1410,10 @@ export default function QuizPage() {
                   <div className="flex items-center text-gray-500 text-xs sm:text-sm">
                     {currentQuestion.type === "image" && (
                       <>
-                        <Image className="w-4 h-4 mr-1" />
+                        <ImageIcon
+                          aria-hidden="true"
+                          className="w-4 h-4 mr-1"
+                        />
                         <span>Gambar</span>
                       </>
                     )}
@@ -1449,21 +1439,24 @@ export default function QuizPage() {
               {console.log("currentQuestion", currentQuestion)}
 
               {currentQuestion.type == "image" && (
-                <div className="mb-4 sm:mb-6 rounded-lg overflow-hidden border border-gray-200">
-                  <img
+                <div className="relative mb-4 sm:mb-6 h-[300px] sm:h-[400px] rounded-lg overflow-hidden border border-gray-200">
+                  <NextImage
                     src={`https://api.gisofficial.com/v1/files?path=${currentQuestion.question_img}`}
                     alt="Gambar soal"
-                    className="w-full h-auto object-contain max-h-[300px] sm:max-h-[400px]"
+                    fill
+                    unoptimized
+                    sizes="(max-width: 640px) 100vw, 800px"
+                    className="object-contain"
                     onError={(e) => {
                       console.error(
                         "Failed to load question image:",
                         e.target.src,
                       );
                       e.target.style.display = "none";
-                      e.target.nextElementSibling.style.display = "block";
+                      e.target.nextElementSibling.style.display = "flex";
                     }}
                   />
-                  <div className="hidden text-red-500 text-sm italic p-4 text-center">
+                  <div className="absolute inset-0 hidden items-center justify-center text-red-500 text-sm italic p-4 text-center">
                     Gambar tidak dapat dimuat
                   </div>
                 </div>
@@ -1563,11 +1556,14 @@ export default function QuizPage() {
 
                             {/* Image Content */}
                             {isImageAnswer && (
-                              <div className="w-full max-w-md">
-                                <img
+                              <div className="relative w-full max-w-md h-48">
+                                <NextImage
                                   src={`https://api.gisofficial.com/gis-backend-v5/storage/app/public/${originalAnswer.answer_img}`}
                                   alt={`Jawaban ${String.fromCharCode(65 + idx)}`}
-                                  className="w-full h-auto max-h-48 object-contain rounded-lg border border-gray-200"
+                                  fill
+                                  unoptimized
+                                  sizes="(max-width: 640px) 100vw, 448px"
+                                  className="object-contain rounded-lg border border-gray-200"
                                   onError={(e) => {
                                     console.error(
                                       "Failed to load answer image:",
@@ -1575,10 +1571,10 @@ export default function QuizPage() {
                                     );
                                     e.target.style.display = "none";
                                     e.target.nextElementSibling.style.display =
-                                      "block";
+                                      "flex";
                                   }}
                                 />
-                                <div className="hidden text-red-500 text-sm italic">
+                                <div className="absolute inset-0 hidden items-center justify-center text-red-500 text-sm italic">
                                   Gambar tidak dapat dimuat:{" "}
                                   {originalAnswer.answer_img}
                                 </div>
