@@ -14,7 +14,11 @@ import {
   useStartExamProtection,
   isExamInProgress,
 } from "../utils/examProtection";
-import { modeSchedules, checkModeActive } from "../utils/examSchedule";
+import {
+  modeSchedules,
+  getModeSchedule,
+  checkModeActive,
+} from "../utils/examSchedule";
 import { deleteCookie } from "../utils/cookies";
 import {
   BookOpen,
@@ -115,12 +119,12 @@ export default function StartExam() {
     };
   }, [router]);
 
-  // Refresh status jendela waktu tiap mode setiap 30 detik
+  // Refresh status jendela waktu tiap mode dan jenjang setiap 30 detik
   useEffect(() => {
     const updateStatuses = () => {
       const statuses = {};
       Object.keys(modeSchedules).forEach((key) => {
-        statuses[key] = checkModeActive(key);
+        statuses[key] = checkModeActive(key, user?.jenjang);
       });
       setModeStatuses(statuses);
     };
@@ -128,13 +132,13 @@ export default function StartExam() {
     updateStatuses();
     const interval = setInterval(updateStatuses, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.jenjang]);
 
   // Pilih mode ujian → cek jendela waktunya → mulai ujian
   const handleSelectMode = async (modeKey) => {
     if (isStartingExam) return;
 
-    const scheduleCheck = checkModeActive(modeKey);
+    const scheduleCheck = checkModeActive(modeKey, user?.jenjang);
     if (!scheduleCheck.allowed) {
       setExamError(scheduleCheck.message);
       return;
@@ -333,6 +337,7 @@ export default function StartExam() {
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           {Object.entries(modeSchedules).map(([key, schedule]) => {
             const status = modeStatuses[key] || { status: "unknown" };
+            const participantSchedule = getModeSchedule(key, user?.jenjang);
             const isActive = status.status === "active";
             const Icon = MODE_ICONS[key] || BookOpen;
 
@@ -405,7 +410,8 @@ export default function StartExam() {
                 <div className="flex items-center space-x-2 text-sm text-gray-600 mb-4">
                   <Clock className="w-4 h-4 text-gray-400" />
                   <span>
-                    {schedule.startTime} - {schedule.endTime}
+                    {participantSchedule.startTime} -{" "}
+                    {participantSchedule.endTime}
                   </span>
                 </div>
 

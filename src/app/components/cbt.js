@@ -293,8 +293,8 @@ export default function QuizPage() {
       // Check exam schedule first — jendela waktu MODE bila mode tersedia,
       // fallback ke jadwal jenjang
       const scheduleCheck =
-        examMode && checkModeActive(examMode).status !== "invalid"
-          ? checkModeActive(examMode)
+        examMode && checkModeActive(examMode, user.jenjang).status !== "invalid"
+          ? checkModeActive(examMode, user.jenjang)
           : checkSchedule(user.jenjang);
       if (!scheduleCheck.allowed) {
         setError(scheduleCheck.message);
@@ -817,20 +817,10 @@ export default function QuizPage() {
   // Final submission with results calculation
   const kirimJawaban = async (isAutoSubmit) => {
     setIsSubmitting(true);
+    const examMode =
+      typeof window !== "undefined" ? localStorage.getItem("examMode") : null;
 
     try {
-      let userId = getCurrentUserId();
-
-      // If getting userId from token fails, try to get it from user object
-      if (!userId && user && user.id) {
-        userId = user.id;
-        console.log("Using userId from user object:", userId, typeof userId);
-      }
-
-      if (!userId) throw new Error("User ID not found");
-
-      console.log("Submitting exam for userId:", userId, typeof userId);
-
       // Durasi selalu dihitung dari batas sesi, bukan sisa jadwal jenjang.
       const totalExamDuration =
         (parseInt(process.env.NEXT_PUBLIC_EXAM_DURATION_MINUTES, 10) || 90) *
@@ -864,24 +854,19 @@ export default function QuizPage() {
         });
       } catch (submitError) {
         console.warn("Failed to submit exam data:", submitError);
-        // Continue to get results even if submit fails
+        // Tetap tampilkan ringkasan lokal jika pencatatan submit gagal.
       }
-
-      // Get final results from backend
-      const results = await answersAPI.getResults(userId);
 
       const terjawab = jawaban.filter((j) => j !== null).length;
       const ragu = raguRagu.filter((r) => r === true).length;
 
-      // Prepare submission result with backend data
+      // log-submit hanya mengembalikan metadata submit, jadi ringkasan memakai data sesi lokal.
       const result = {
+        examMode,
         totalQuestions: totalSoal,
-        answered: results.correct + results.wrong || terjawab,
-        unanswered: results.unanswered || totalSoal - terjawab,
+        answered: terjawab,
+        unanswered: totalSoal - terjawab,
         marked: ragu,
-        correct: results.correct || 0,
-        wrong: results.wrong || 0,
-        score: results.score || 0,
         durationInMinutes,
         totalViolations,
         isAutoSubmit,
@@ -936,6 +921,7 @@ export default function QuizPage() {
       const ragu = raguRagu.filter((r) => r === true).length;
 
       const result = {
+        examMode,
         totalQuestions: totalSoal,
         answered: terjawab,
         unanswered: totalSoal - terjawab,
@@ -1175,7 +1161,8 @@ export default function QuizPage() {
               Ada Jawaban Ragu-ragu!
             </h2>
             <p className="text-gray-700 mb-4 text-center text-sm sm:text-base">
-              Anda memiliki {ragu} soal yang ditandai ragu-ragu. Yakin ingin
+              {ragu} jawaban ditandai ragu-ragu dan akan dinilai 0 (dianggap
+              tidak menjawab). Anda tetap dapat mengirim jawaban. Yakin ingin
               melanjutkan?
             </p>
             <div className="flex flex-col sm:flex-row justify-center space-y-2 sm:space-y-0 sm:space-x-4">
@@ -1225,41 +1212,45 @@ export default function QuizPage() {
 
             <div className="bg-emerald-50 rounded-lg p-3 sm:p-4 mb-4 border border-emerald-100">
               <div className="text-center text-xs sm:text-sm text-emerald-700 mb-2">
-                {submissionResult.isAutoSubmit
-                  ? "Waktu ujian telah habis. Jawaban otomatis dikirim."
-                  : "Jawaban Anda telah berhasil dikirimkan."}
+                {submissionResult.examMode === "simulasi"
+                  ? "Jawaban telah direkam. Terima kasih telah mengerjakan Simulasi Science Competition 2026."
+                  : submissionResult.isAutoSubmit
+                    ? "Waktu ujian telah habis. Jawaban otomatis dikirim."
+                    : "Jawaban Anda telah berhasil dikirimkan."}
               </div>
               <div className="text-xs text-emerald-600 text-center">
                 {submissionResult.timestamp}
               </div>
             </div>
 
-            <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
-              <div className="flex justify-between items-center text-sm sm:text-base">
-                <span className="text-gray-600">Total Soal:</span>
-                <span className="font-medium text-gray-600">
-                  {submissionResult.totalQuestions}
-                </span>
+            {submissionResult.examMode !== "simulasi" && (
+              <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
+                <div className="flex justify-between items-center text-sm sm:text-base">
+                  <span className="text-gray-600">Total Soal:</span>
+                  <span className="font-medium text-gray-600">
+                    {submissionResult.totalQuestions}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm sm:text-base">
+                  <span className="text-gray-600">Terjawab:</span>
+                  <span className="font-medium text-emerald-600">
+                    {submissionResult.answered}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm sm:text-base">
+                  <span className="text-gray-600">Belum Dijawab:</span>
+                  <span className="font-medium text-amber-600">
+                    {submissionResult.unanswered}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm sm:text-base">
+                  <span className="text-gray-600">Ditandai Ragu-ragu:</span>
+                  <span className="font-medium text-amber-600">
+                    {submissionResult.marked}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center text-sm sm:text-base">
-                <span className="text-gray-600">Terjawab:</span>
-                <span className="font-medium text-emerald-600">
-                  {submissionResult.answered}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-sm sm:text-base">
-                <span className="text-gray-600">Belum Dijawab:</span>
-                <span className="font-medium text-amber-600">
-                  {submissionResult.unanswered}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-sm sm:text-base">
-                <span className="text-gray-600">Ditandai Ragu-ragu:</span>
-                <span className="font-medium text-amber-600">
-                  {submissionResult.marked}
-                </span>
-              </div>
-            </div>
+            )}
 
             <div className="flex justify-center">
               <button

@@ -24,6 +24,28 @@ export const modeSchedules = {
     endDate: process.env.NEXT_PUBLIC_SIMULASI_END_DATE || "",
     startTime: process.env.NEXT_PUBLIC_SIMULASI_START || "00:00",
     endTime: process.env.NEXT_PUBLIC_SIMULASI_END || "23:59",
+    jenjangSchedules: {
+      sd: {
+        startTime:
+          process.env.NEXT_PUBLIC_SIMULASI_SD_START ||
+          process.env.NEXT_PUBLIC_SIMULASI_START ||
+          "00:00",
+        endTime:
+          process.env.NEXT_PUBLIC_SIMULASI_SD_END ||
+          process.env.NEXT_PUBLIC_SIMULASI_END ||
+          "23:59",
+      },
+      smp: {
+        startTime:
+          process.env.NEXT_PUBLIC_SIMULASI_SMP_START ||
+          process.env.NEXT_PUBLIC_SIMULASI_START ||
+          "00:00",
+        endTime:
+          process.env.NEXT_PUBLIC_SIMULASI_SMP_END ||
+          process.env.NEXT_PUBLIC_SIMULASI_END ||
+          "23:59",
+      },
+    },
   },
   tryout: {
     label: "Tryout",
@@ -38,12 +60,43 @@ export const modeSchedules = {
     endDate: process.env.NEXT_PUBLIC_PENYISIHAN_END_DATE || "",
     startTime: process.env.NEXT_PUBLIC_PENYISIHAN_START || "00:00",
     endTime: process.env.NEXT_PUBLIC_PENYISIHAN_END || "23:59",
+    jenjangSchedules: {
+      sd: {
+        startTime:
+          process.env.NEXT_PUBLIC_PENYISIHAN_SD_START ||
+          process.env.NEXT_PUBLIC_PENYISIHAN_START ||
+          "00:00",
+        endTime:
+          process.env.NEXT_PUBLIC_PENYISIHAN_SD_END ||
+          process.env.NEXT_PUBLIC_PENYISIHAN_END ||
+          "23:59",
+      },
+      smp: {
+        startTime:
+          process.env.NEXT_PUBLIC_PENYISIHAN_SMP_START ||
+          process.env.NEXT_PUBLIC_PENYISIHAN_START ||
+          "00:00",
+        endTime:
+          process.env.NEXT_PUBLIC_PENYISIHAN_SMP_END ||
+          process.env.NEXT_PUBLIC_PENYISIHAN_END ||
+          "23:59",
+      },
+    },
   },
 };
 
-// Check if a MODE's date and time window is currently open.
-export const checkModeActive = (modeKey) => {
+export const getModeSchedule = (modeKey, jenjang) => {
   const schedule = modeSchedules[modeKey];
+  if (!schedule) return null;
+
+  const jenjangKey = String(jenjang || "").toLowerCase();
+  const jenjangSchedule = schedule.jenjangSchedules?.[jenjangKey];
+  return jenjangSchedule ? { ...schedule, ...jenjangSchedule } : schedule;
+};
+
+// Check if a MODE's date and time window is currently open.
+export const checkModeActive = (modeKey, jenjang) => {
+  const schedule = getModeSchedule(modeKey, jenjang);
   if (!schedule) {
     return {
       allowed: false,

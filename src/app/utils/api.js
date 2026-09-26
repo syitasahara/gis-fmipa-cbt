@@ -645,7 +645,6 @@ export const answersAPI = {
       body: JSON.stringify({
         durasiWaktu: String(durationInMinutes),
         // UUID log-lomba dibuat oleh backend.
-        id: "",
         isAutosubmit: Boolean(isAutoSubmit),
         pelanggaran:
           typeof totalViolations === "number"

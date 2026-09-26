@@ -17,7 +17,11 @@ import {
 
 import { getCurrentExamStatus, examSchedules } from "../utils/examSchedule";
 import { isExamInProgress } from "../utils/examProtection";
-import { modeSchedules, checkModeActive } from "../utils/examSchedule";
+import {
+  modeSchedules,
+  getModeSchedule,
+  checkModeActive,
+} from "../utils/examSchedule";
 
 const MODE_ICONS = {
   simulasi: FlaskConical,
@@ -50,7 +54,10 @@ export default function ExamSchedulePage() {
     const updateStatuses = () => {
       const statuses = {};
       Object.keys(modeSchedules).forEach((key) => {
-        statuses[key] = checkModeActive(key);
+        statuses[key] = {
+          sd: checkModeActive(key, "sd"),
+          smp: checkModeActive(key, "smp"),
+        };
       });
       setModeStatuses(statuses);
     };
@@ -59,7 +66,10 @@ export default function ExamSchedulePage() {
     updateStatus();
     updateStatuses();
     // Update every minute
-    const interval = setInterval(updateStatus, 60000);
+    const interval = setInterval(() => {
+      updateStatus();
+      updateStatuses();
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [router]);
@@ -68,6 +78,14 @@ export default function ExamSchedulePage() {
     setIsRefreshing(true);
     setCurrentTime(new Date().toTimeString().slice(0, 5));
     setExamStatuses(getCurrentExamStatus());
+    const statuses = {};
+    Object.keys(modeSchedules).forEach((key) => {
+      statuses[key] = {
+        sd: checkModeActive(key, "sd"),
+        smp: checkModeActive(key, "smp"),
+      };
+    });
+    setModeStatuses(statuses);
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
@@ -213,8 +231,6 @@ export default function ExamSchedulePage() {
           {/* Mode Selection Cards */}
           <div className="grid md:grid-cols-3 gap-6 mb-8">
             {Object.entries(modeSchedules).map(([key, schedule]) => {
-              const status = modeStatuses[key] || { status: "unknown" };
-              const isActive = status.status === "active";
               const Icon = MODE_ICONS[key] || BookOpen;
 
               const accent =
@@ -243,23 +259,10 @@ export default function ExamSchedulePage() {
                 }[key] || {};
 
               return (
-                <button
+                <div
                   key={key}
-                  disabled={!isActive}
                   className={`relative bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-md border-2 ${accent.border} text-left transition-all duration-300 pointer-events-none`}
                 >
-                  {/* Status badge */}
-                  <div
-                    className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-bold shadow-sm ${accent.badge} ${
-                      isActive ? "" : "bg-gray-200 text-gray-600 animate-none"
-                    }`}
-                  >
-                    {isActive && "🟢 Dibuka"}
-                    {status.status === "not_started" && "🔵 Belum Dimulai"}
-                    {status.status === "ended" && "🔴 Berakhir"}
-                    {status.status === "unknown" && "−"}
-                  </div>
-
                   <div
                     className={`${accent.iconBg} w-14 h-14 rounded-2xl flex items-center justify-center mb-4`}
                   >
@@ -270,13 +273,48 @@ export default function ExamSchedulePage() {
                     {schedule.label}
                   </h3>
 
-                  <div className="flex items-center space-x-2 text-sm text-gray-600 mb-4">
-                    <Clock className="w-4 h-4 text-gray-400" />
-                    <span>
-                      {schedule.startTime} - {schedule.endTime}
-                    </span>
+                  <div className="space-y-3">
+                    {["sd", "smp"].map((jenjang) => {
+                      const levelSchedule = getModeSchedule(key, jenjang);
+                      const status = modeStatuses[key]?.[jenjang] || {
+                        status: "unknown",
+                      };
+                      const isActive = status.status === "active";
+                      const statusLabel =
+                        status.status === "active"
+                          ? "Dibuka"
+                          : status.status === "not_started"
+                            ? "Belum dimulai"
+                            : status.status === "ended"
+                              ? "Berakhir"
+                              : "Memuat";
+
+                      return (
+                        <div
+                          key={jenjang}
+                          className="flex items-center justify-between gap-3 text-sm text-gray-600"
+                        >
+                          <span className="font-semibold uppercase">
+                            {jenjang}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-4 h-4 text-gray-400" />
+                            {levelSchedule.startTime} - {levelSchedule.endTime}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                              isActive
+                                ? "bg-green-100 text-green-800"
+                                : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
