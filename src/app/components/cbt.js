@@ -879,6 +879,10 @@ export default function QuizPage() {
 
         // Clear localStorage and cookies - including auth token and randomization seed
         localStorage.clear();
+        // Hapus juga cookie `token` — kalau dibiarkan, middleware menganggap
+        // masih login dan menendang /login → /start-exam, sementara start-exam
+        // tidak menemukan token di localStorage dan melempar balik (loop).
+        removeToken();
         deleteCookie("violations");
 
         // Specifically clear exam seed for this user
@@ -892,8 +896,11 @@ export default function QuizPage() {
           localStorage.removeItem("authToken");
         }
 
+        // Hard navigation, bukan router.push: payload RSC /login bisa ter-cache
+        // client (hasil prefetch saat masih login) termasuk redirect middleware-nya,
+        // sehingga push me-replay pantulan ke /start-exam walau cookie sudah bersih.
         setTimeout(() => {
-          router.push("/login");
+          window.location.replace("/login");
         }, 3000); // Increased to 3 seconds to let user see results
       }, 1500);
     } catch (error) {
@@ -936,6 +943,7 @@ export default function QuizPage() {
 
         // Clear localStorage and cookies even in error case
         localStorage.clear();
+        removeToken();
         deleteCookie("violations");
 
         // Specifically clear exam seed for this user
@@ -949,9 +957,9 @@ export default function QuizPage() {
           localStorage.removeItem("authToken");
         }
 
-        // Redirect to login after showing results
+        // Redirect to login after showing results (hard navigation, lihat catatan jalur sukses)
         setTimeout(() => {
-          router.push("/login");
+          window.location.replace("/login");
         }, 3000);
       }, 1000);
     }
@@ -969,6 +977,7 @@ export default function QuizPage() {
 
     // Clear all auth data before going to home
     localStorage.clear();
+    removeToken();
     deleteCookie("violations");
 
     // Ensure auth token is completely removed
@@ -976,7 +985,9 @@ export default function QuizPage() {
       localStorage.removeItem("authToken");
     }
 
-    router.push("/login"); // Redirect to login instead of home since user is logged out
+    // Hard navigation, bukan router.push — sama seperti alur submit di atas:
+    // hindari replay redirect middleware dari Router Cache Next.js.
+    window.location.replace("/login"); // Redirect to login instead of home since user is logged out
   };
 
   const terjawab = jawaban.filter((j) => j !== null).length;

@@ -73,6 +73,9 @@ export default function StartExam() {
         );
 
         if (!token || !isAuthenticated()) {
+          // Bersihkan sisa cookie `token` sebelum lempar ke /login — tanpa ini
+          // middleware menendang balik ke sini dan terjadi loop /login ↔ sini.
+          removeToken();
           if (isMounted) {
             router.push("/login");
           }
