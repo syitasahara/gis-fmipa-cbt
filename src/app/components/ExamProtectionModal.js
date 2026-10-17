@@ -11,8 +11,12 @@ export default function ExamProtectionModal() {
   const pathname = usePathname();
 
   useEffect(() => {
-    // Jika ujian berlangsung dan user tidak di halaman quiz, tampilkan modal
-    if (isExamInProgress() && pathname !== '/quiz') {
+    // Jika ujian berlangsung, user terautentikasi, dan tidak di halaman quiz,
+    // tampilkan modal. Tanpa cek token, user dengan sisa cookie ujian tapi
+    // sudah logout akan disodori tombol yang menendangnya ke /quiz lalu
+    // dibounce middleware balik ke /login.
+    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    if (isExamInProgress() && token && pathname !== '/quiz') {
       setShowModal(true);
     } else {
       setShowModal(false);

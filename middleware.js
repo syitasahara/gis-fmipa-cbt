@@ -1,8 +1,29 @@
 import { NextResponse } from 'next/server';
 
+// Cek apakah token cookie masih bisa dipakai. Cookie `token` berumur 24 jam,
+// tetapi JWT-nya bisa kadaluarsa lebih cepat — tanpa cek ini, middleware
+// menganggap user masih login dan menendang /login → /start-exam, lalu
+// halaman client mendeteksi expired dan melempar balik ke /login (kedut/refresh).
+// Decode payload saja tanpa verifikasi signature — validasi penuh tetap di server.
+function isTokenUsable(token) {
+  if (!token) return false;
+  try {
+    const part = token.split('.')[1];
+    if (!part) return true; // bukan JWT (opaque): serahkan validasi ke server
+    const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    if (payload?.exp && payload.exp < Math.floor(Date.now() / 1000)) return false;
+    return true;
+  } catch {
+    return true; // gagal decode: selaras dengan isAuthenticated() di client
+  }
+}
+
 export function middleware(request) {
-  // Get token from cookies
-  const token = request.cookies.get('token')?.value;
+  const token = isTokenUsable(request.cookies.get('token')?.value)
+    ? request.cookies.get('token')?.value
+    : null;
   const path = request.nextUrl.pathname;
 
   // Protected routes that need authentication

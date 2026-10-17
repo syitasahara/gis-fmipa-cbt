@@ -1,7 +1,9 @@
 // API utility functions for backend integration
 // Direct call ke GIS API (tanpa proxy Next.js).
 // CATATAN: BE harus mengizinkan CORS untuk origin frontend ini.
-const API_BASE_URL = "https://api.gisofficial.com/v1";
+import { clearExamState } from './examProtection';
+
+const API_BASE_URL = 'https://api.gisofficial.com/v1';
 
 // Get token from localStorage
 const getToken = () => {
@@ -43,8 +45,11 @@ const removeToken = () => {
     localStorage.removeItem("authUserId");
     localStorage.removeItem("authPesertaId");
     // Also remove from cookies
-    document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT";
-    console.log("🗑️ TOKEN REMOVE: Token removed");
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+    // Sisa state ujian juga dibersihkan — kalau dibiarkan, wrapper menendang
+    // user tanpa token ke /quiz dan middleware melempar balik ke /login (loop)
+    clearExamState();
+    console.log('🗑️ TOKEN REMOVE: Token removed');
   }
 };
 

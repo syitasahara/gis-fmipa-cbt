@@ -11,20 +11,34 @@ export function useExamProtection() {
 
   useEffect(() => {
     // Cek apakah ujian sedang berlangsung
-    const examStarted = getCookie("examStarted");
-    const examEndTime = getCookie("examEndTime");
-
-    if (examStarted === "true" && examEndTime) {
+    const examStarted = getCookie('examStarted');
+    const examEndTime = getCookie('examEndTime');
+    
+    if (examStarted === 'true' && examEndTime) {
       const currentTime = new Date().getTime();
       const endTime = parseInt(examEndTime);
 
       // Jika ujian masih berlangsung dan user tidak di halaman quiz
-      if (currentTime < endTime && pathname !== "/quiz") {
+      if (currentTime < endTime && pathname !== '/quiz') {
         // Redirect ke halaman quiz
-        router.replace("/quiz");
+        router.replace('/quiz');
       }
     }
   }, [pathname, router]);
+}
+
+// Bersihkan seluruh penanda ujian (cookies + localStorage)
+export function clearExamState() {
+  if (typeof document !== 'undefined') {
+    document.cookie = 'examStarted=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+    document.cookie = 'examStartTime=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+    document.cookie = 'examEndTime=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+  }
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('examStarted');
+    localStorage.removeItem('examStartTime');
+    localStorage.removeItem('examEndTime');
+  }
 }
 
 // Hook untuk memulai proteksi ujian

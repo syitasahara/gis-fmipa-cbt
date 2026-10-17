@@ -101,7 +101,8 @@ export default function StartExam() {
 
         if (isMounted) {
           setTimeout(() => {
-            router.push("/");
+            // Langsung ke /login — lewat '/' berarti satu pantulan middleware ekstra
+            router.replace('/login');
           }, 1000);
         }
         return;
